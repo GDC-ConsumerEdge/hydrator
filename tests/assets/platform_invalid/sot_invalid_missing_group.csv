@@ -1,0 +1,6 @@
+cluster_name,cluster_tags,dns_servers
+US75911CLS01,"donotupgrade,corp","1.1.1.1,1.1.0.0"
+US41273CLS01,"drivethruduallane,corp","1.1.1.1,1.1.0.0"
+US62877CLS01,"donotupgrade","8.8.8.8,8.8.4.4"
+US87746CLS01,"drivethruduallane","8.8.8.8,8.8.4.4"
+US87746CLS01,"drivethruduallane","8.8.8.8,8.8.4.4"

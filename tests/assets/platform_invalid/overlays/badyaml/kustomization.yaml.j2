@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+commonAnnotations:
+  configsync.gke.io/cluster-name-selector: "{{ cluster_name|trim }}"
+  managing-repo: platform
+  cluster-group: "{{ cluster_group|trim }}"
+
+labels:
+  - pairs:
+      foo: bar
+    includeSelectors: true
+
+# explicit resource paths rather than jinja-fied
+resources:
+  - ../../base_library/clusterdns
+  - ../../base_library/rbac
+  - ../../base_library/robin
+  - ../../base_library/vmruntime-badyaml

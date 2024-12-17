@@ -1,0 +1,6 @@
+cluster_group,cluster_tags,dns_servers
+prod-us,"donotupgrade,corp","1.1.1.1,1.1.0.0"
+prod-us,"drivethruduallane,corp","1.1.1.1,1.1.0.0"
+nonprod-us,"donotupgrade","8.8.8.8,8.8.4.4"
+nonprod-us,"drivethruduallane","8.8.8.8,8.8.4.4"
+badjinja,"drivethruduallane","8.8.8.8,8.8.4.4"

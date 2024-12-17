@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hydration"
+authors = [
+    { name = "Paul Durivage", email = "durivage@google.com" },
+]
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache License Version 2.0" }
+version = "v0.1"
+dynamic = ["dependencies", "optional-dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.in"] }
+optional-dependencies.dev = { file = ["requirements-dev.in"] }
+
+[project.scripts]
+hydrate = "hydrate.__main__:main"
+
+[tool.pip-tools]
+generate-hashes = true

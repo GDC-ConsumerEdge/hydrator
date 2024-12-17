@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+commonAnnotations:
+  configsync.gke.io/cluster-name-selector: "{{ cluster_name|trim }}"
+  client.lifecycle.config.k8s.io/deletion: detach
+  managing-repo: platform
+  cluster-group: "{{ cluster_group|trim }}"
+
+labels:
+- includeSelectors: true
+  pairs:
+    foo: bar
+
+resources:
+{% for item in ['clusterdns', 'rbac', 'robin'] %}
+  - ../../base_library/{{ item }}
+{% endfor %}
+{% if cluster_name|trim == 'US12761CLS01' %}
+  - ../../base_library/experimental/vmruntime
+
+patches:
+- path: patch.yaml
+  target:
+    group: vm.cluster.gke.io
+    kind: VMRuntime
+    name: vmruntime
+    version: v1
+{% else %}
+  - ../../base_library/vmruntime
+{% endif %}

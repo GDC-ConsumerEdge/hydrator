@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+commonAnnotations:
+  configsync.gke.io/cluster-name-selector: "{{ cluster_name|trim }}"
+  client.lifecycle.config.k8s.io/deletion: detach
+  managing-repo: platform
+  cluster-group: "{{ cluster_group|trim }}"
+
+labels:
+- includeSelectors: true
+  pairs:
+    foo: bar
+
+resources:
+{% for item in ['clusterdns', 'rbac', 'robin', 'vmruntime'] %}
+  - ../../base_library/{{ item }}
+{% endfor %}

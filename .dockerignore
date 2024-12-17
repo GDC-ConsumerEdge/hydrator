@@ -1,0 +1,12 @@
+*.egg-info
+.idea
+__pycache__/
+bin/
+lib/
+lib64
+pyvenv.cfg
+share/
+.DS_Store
+dist/
+include/
+.mypy_cache

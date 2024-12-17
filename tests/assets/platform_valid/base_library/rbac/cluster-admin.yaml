@@ -1,0 +1,35 @@
+###############################################################################
+# Copyright 2024 Google, LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+###############################################################################
+# Grants users cluster-admin access.  Users with connect gateway access still need
+# access to the cluster granted with Kubernetes RBAC.  The below grants
+# `cluster-admin`, which is highly privileged.  Modify this to your use case.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gateway-cluster-admin
+subjects:
+- kind: User
+  name: "user@example.com"
+- kind: User
+  name: "bastion-sa@some-project.iam.gserviceaccount.com"
+- kind: Group
+  name: "cluster-admin-group@example.com"
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io

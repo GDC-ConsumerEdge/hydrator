@@ -1,0 +1,6 @@
+cluster_name,cluster_group,dns_servers
+US75911CLS01,prod-us,"1.1.1.1,1.1.0.0"
+US41273CLS01,prod-us,"1.1.1.1,1.1.0.0"
+US62877CLS01,nonprod-us,"8.8.8.8,8.8.4.4"
+US87746CLS01,nonprod-us,"8.8.8.8,8.8.4.4"
+US87746CLS01,badjinja,"8.8.8.8,8.8.4.4"

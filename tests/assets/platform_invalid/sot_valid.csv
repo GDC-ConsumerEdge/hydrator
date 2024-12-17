@@ -1,0 +1,6 @@
+cluster_name,cluster_group,cluster_tags,dns_servers
+US75911CLS01,good,"donotupgrade,corp","1.1.1.1,1.1.0.0"
+US41273CLS01,good,"drivethruduallane,corp","1.1.1.1,1.1.0.0"
+US87747CLS01,badjinja,"drivethruduallane","8.8.8.8,8.8.4.4"
+US87748CLS01,badkustomize,"drivethruduallane","8.8.8.8,8.8.4.4"
+US87749CLS01,badyaml,"drivethruduallane","8.8.8.8,8.8.4.4"
