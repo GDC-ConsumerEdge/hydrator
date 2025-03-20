@@ -1,0 +1,26 @@
+on:
+  pull_request:
+    branches:
+      - main
+
+name: test
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: install dependencies
+        run: pip install .[dev]
+      - name: pylint checks
+        run: pylint --fail-on=E src/
+      - name: mypy checks
+        run: mypy src/
+      - name: test hydrator sync
+        run: python3 -m unittest -vv tests/test_cluster_cli.py
+      - name: test hydrator async
+        run: python3 -m unittest -vv tests/test_cluster_async.py
