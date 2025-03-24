@@ -16,9 +16,9 @@ jobs:
           cache: pip
       - name: install dependencies
         run: pip install .[dev]
-      - name: pylint checks
+      - name: pylint
         run: pylint --fail-on=E src/
-      - name: mypy checks
+      - name: mypy
         run: mypy src/
       - name: test hydrator sync
         run: python3 -m unittest -vv tests/test_cluster_cli.py
