@@ -519,13 +519,19 @@ class BaseCli:
             reader = csv.DictReader(sot_f, dialect='excel')
             row: dict[str, str]
             for row in reader:
-                cfg = dcls({k.strip(): v.strip() for k, v in row.items() if row})
+                try:
+                    cfg = dcls({k.strip(): v.strip() for k, v in row.items() if row})
+                except AttributeError as e:
+                    self._logger.error(f'Check source of truth format; skipping line '
+                                       f'{reader.line_num} with error: {e}')
+                    continue
+
                 self._logger.debug(f'Got config from CSV:\n{pprint.pformat(cfg)}')
 
                 try:
                     check_config(cfg)
                 except ConfigWarning as e:
-                    self._logger.warning(f"Skipping row {reader.line_num}: {e}")
+                    self._logger.warning(f"Skipping line {reader.line_num}: {e}")
                     del data[cfg.name]
                 except ConfigError as e:
                     self._logger.error(e)
