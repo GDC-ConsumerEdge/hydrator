@@ -82,7 +82,7 @@ def main() -> int:
                 oci_registry=args.oci_registry,
                 oci_tags=args.oci_tags,
                 hydration_type=args.type,
-                package_group=args.group,
+                package_groups=args.group,
                 package_tags=args.tag,
                 preserve_temp=args.preserve_temp,
                 split_output=args.split_output,

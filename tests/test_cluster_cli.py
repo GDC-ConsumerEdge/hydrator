@@ -135,6 +135,23 @@ class TestClusterHydrationPlatformValidCases(unittest.TestCase):
 
         r.temp.cleanup()
 
+    def test_standard_args_cluster_selector_multiple(self):
+        args = [*self.standard_args, "--cluster-name", "US62877CLS01",
+                "--cluster-name", "US75911CLS01"]
+        r = run_cli('tests/assets/platform_valid/sot.csv', subcommand_args=args)
+        print(r.proc.stdout)
+        print(r.proc.stderr)
+        self.assertIn("2 clusters total, all rendered successfully", r.proc.stdout)
+        self.assertEqual("", r.proc.stderr)
+        self.assertTrue(r.out.joinpath("nonprod-us/US62877CLS01.yaml").is_file())
+        self.assertTrue(r.out.joinpath("prod-us/US75911CLS01.yaml").is_file())
+        self.assertTrue(r.out.joinpath("prod-us").is_dir())
+        self.assertTrue(r.out.joinpath("nonprod-us").is_dir())
+        self.assertFalse(r.out.joinpath("nonprod-us/US87746CLS01.yaml").is_file())
+        self.assertFalse(r.out.joinpath("prod-us/US41273CLS01.yaml").is_file())
+
+        r.temp.cleanup()
+
     def test_standard_args_group_selector(self):
         args = [*self.standard_args, "--cluster-group", "nonprod-us"]
         r = run_cli('tests/assets/platform_valid/sot.csv', subcommand_args=args)
@@ -149,6 +166,19 @@ class TestClusterHydrationPlatformValidCases(unittest.TestCase):
             r.out.joinpath("nonprod-us/US62877CLS01.yaml").is_file())
         self.assertTrue(
             r.out.joinpath("nonprod-us/US87746CLS01.yaml").is_file())
+
+        r.temp.cleanup()
+
+    def test_standard_args_group_selector_multiple(self):
+        args = [*self.standard_args, "--cluster-group", "nonprod-us", "--cluster-group", "prod-us"]
+        r = run_cli('tests/assets/platform_valid/sot.csv', subcommand_args=args)
+
+        self.assertIn("4 clusters total, all rendered successfully", r.proc.stdout)
+        self.assertEqual("", r.proc.stderr)
+        self.assertTrue(r.out.joinpath("prod-us/US75911CLS01.yaml").is_file())
+        self.assertTrue(r.out.joinpath("prod-us/US41273CLS01.yaml").is_file())
+        self.assertTrue(r.out.joinpath("nonprod-us/US62877CLS01.yaml").is_file())
+        self.assertTrue(r.out.joinpath("nonprod-us/US87746CLS01.yaml").is_file())
 
         r.temp.cleanup()
 
