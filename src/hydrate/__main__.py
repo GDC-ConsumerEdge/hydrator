@@ -18,7 +18,7 @@ import asyncio
 import pprint
 import sys
 
-from .cli import parse_args, ClusterCli, PackageCli
+from .cli import parse_args, ClusterCli, GroupCli
 from .exc import CliError
 from .types import HydrateType
 from .util import setup_logger
@@ -43,7 +43,7 @@ def main() -> int:
 
     logger.debug(f'Received args: {pprint.pformat(vars(args))}')
 
-    cli: PackageCli | ClusterCli
+    cli: GroupCli | ClusterCli
     try:
         if args.type is HydrateType.CLUSTER:
             cli = ClusterCli(
@@ -67,8 +67,8 @@ def main() -> int:
                 split_output=args.split_output,
                 workers=args.workers,
             )
-        elif args.type is HydrateType.PACKAGE:
-            cli = PackageCli(
+        elif args.type is HydrateType.GROUP:
+            cli = GroupCli(
                 logger=logger,
                 sot_file=args.sot_file,
                 temp=args.temp,
@@ -82,8 +82,8 @@ def main() -> int:
                 oci_registry=args.oci_registry,
                 oci_tags=args.oci_tags,
                 hydration_type=args.type,
-                package_groups=args.group,
-                package_tags=args.tag,
+                groups=args.group,
+                tags=args.tag,
                 preserve_temp=args.preserve_temp,
                 split_output=args.split_output,
                 workers=args.workers,

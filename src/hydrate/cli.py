@@ -25,9 +25,9 @@ import sys
 from typing import Set
 
 from .exc import CliError, ConfigWarning, ConfigError
-from .hydration import BaseHydrator, ClusterHydrator, PackageHydrator
+from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
 from .oci_registry import OCIClientFactory
-from .types import SotConfig, HydrateType, BaseConfig, PackageConfig, ClusterConfig
+from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig
 from .util import LazyFileType, TempDir, \
     cap_word_to_snake_case, check_config
 from .validator import BaseValidator, Gatekeeper
@@ -71,15 +71,15 @@ def parse_args() -> argparse.Namespace:
         description='hydrate cluster-specific resources',
         help='hydrate cluster-specific resources'
     )
-    package = subparser.add_parser(
-        'package',
-        description='hydrate resources for a package',
-        help='hydrate resources for a package'
+    group = subparser.add_parser(
+        'group',
+        description='hydrate group-specific resources',
+        help='hydrate group-specific resources'
     )
     cluster.set_defaults(type=HydrateType.CLUSTER)
-    package.set_defaults(type=HydrateType.PACKAGE)
+    group.set_defaults(type=HydrateType.GROUP)
 
-    for p in (cluster, package):
+    for p in (cluster, group):
         p.add_argument(
             'sot_file',
             metavar='source_of_truth_file.csv',
@@ -158,10 +158,10 @@ def parse_args() -> argparse.Namespace:
         help='whether to split the generated manifest into multiple files; default: false'
     )
 
-    # output style is more rigid for package hydration
+    # output style is more rigid for group hydration
     # set output subdir should be none by default, but enabling split output is appropriate
-    package.set_defaults(output_subdir='none')
-    package.add_argument(
+    group.set_defaults(output_subdir='none')
+    group.add_argument(
         '--split-output',
         action='store_true',
         default=False,
@@ -186,8 +186,8 @@ def parse_args() -> argparse.Namespace:
         action='append',
         help='name of cluster group to select from config; may be used more than once')
 
-    # these selectors are only for package hydration
-    pkg_select_mutex = package.add_mutually_exclusive_group()
+    # these selectors are only for group hydration
+    pkg_select_mutex = group.add_mutually_exclusive_group()
     pkg_select_mutex.add_argument(
         '--group',
         metavar='GROUP',
@@ -254,7 +254,7 @@ def validate_and_normalize_args(args: argparse.Namespace) -> argparse.Namespace:
 
 # pylint: disable-next=too-many-instance-attributes
 class BaseCli:
-    """ Implements the base CLI flow for two subcommands, package and cluster hydration.
+    """ Implements the base CLI flow for two subcommands, group and cluster hydration.
     This is a base class and is not expected to be instantiated directly; things will break if so.
     """
     _validators: list[BaseValidator]
@@ -480,11 +480,11 @@ class BaseCli:
         Returns:
             integer exit code
         """
-        cls: type[ClusterHydrator] | type[PackageHydrator]
+        cls: type[ClusterHydrator] | type[GroupHydrator]
         if self._hyd_type is HydrateType.CLUSTER:
             cls = ClusterHydrator
-        elif self._hyd_type is HydrateType.PACKAGE:
-            cls = PackageHydrator
+        elif self._hyd_type is HydrateType.GROUP:
+            cls = GroupHydrator
         else:
             raise CliError(f'Unknown hydration type {self._hyd_type}')
 
@@ -513,7 +513,7 @@ class BaseCli:
             {item_name: {config: ...}, ...}
         """
         data: SotConfig = {}
-        dcls = ClusterConfig if self._hyd_type is HydrateType.CLUSTER else PackageConfig
+        dcls = ClusterConfig if self._hyd_type is HydrateType.CLUSTER else GroupConfig
         with self._sot_file.open() as sot_f:
             self._logger.debug(f"Processing source of truth file: {sot_f.name}")
             reader = csv.DictReader(sot_f, dialect='excel')
@@ -580,14 +580,14 @@ class ClusterCli(BaseCli):
         self._tags = cluster_tag
 
 
-class PackageCli(BaseCli):
-    """ CLI class for package hydration """
+class GroupCli(BaseCli):
+    """ CLI class for group hydration """
 
     def __init__(self, *,
-                 package_groups: set[str],
-                 package_tags: set[str],
+                 groups: set[str],
+                 tags: set[str],
                  **kwargs):
         super().__init__(**kwargs)
-        self._names = package_groups
-        self._groups = package_groups
-        self._tags = package_tags
+        self._names = groups
+        self._groups = groups
+        self._tags = tags

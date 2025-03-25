@@ -22,7 +22,7 @@ import enum
 class HydrateType(enum.Enum):
     """ Represents two current types of hydration """
     CLUSTER = 'cluster'
-    PACKAGE = 'package'
+    GROUP = 'group'
 
 
 class BaseConfig(abc.ABC, dict):
@@ -66,7 +66,7 @@ class ClusterConfig(BaseConfig):
     tags_field = "cluster_tags"
 
 
-class PackageConfig(BaseConfig):
+class GroupConfig(BaseConfig):
     """ Represents a single package configuration parsed from SoT """
     name_field = "group"
     group_field = "group"

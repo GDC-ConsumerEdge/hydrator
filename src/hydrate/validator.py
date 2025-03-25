@@ -45,7 +45,7 @@ class Gatekeeper(BaseValidator):
     constraint_paths: list[pathlib.Path]
 
     def __init__(self, *args, **kwargs):
-        """GatekeeperValidator constructore takes a list of constraint paths
+        """GatekeeperValidator constructor takes a list of constraint paths
         which should be passed to Gator including, most importantly, the
         rendered manifest after hydration.  The gator binary name is hardcoded
         to 'gator' and it must be in the executing shell $PATH.

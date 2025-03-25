@@ -147,7 +147,7 @@ class BaseHydrator(LoggingMixin):
         if self._split_output:
             if self._hyd_type is HydrateType.CLUSTER:
                 hydration_dest = self._hydrated.joinpath(self.config.group, self.name)
-            elif self._hyd_type is HydrateType.PACKAGE:
+            elif self._hyd_type is HydrateType.GROUP:
                 hydration_dest = self._hydrated.joinpath(self.name)
             else:
                 raise CliError(f'Unknown hydration type {self._hyd_type}')
@@ -525,11 +525,11 @@ class ClusterHydrator(BaseHydrator):
         _disp_name = 'cluster'
 
 
-class PackageHydrator(BaseHydrator):
-    """ Hydrator class for packages """
+class GroupHydrator(BaseHydrator):
+    """ Hydrator class for group-specific resources """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, hydration_type=HydrateType.PACKAGE, **kwargs)
+        super().__init__(*args, hydration_type=HydrateType.GROUP, **kwargs)
         self._name_key = 'group'
         self._group_key = 'group'
         self._tags_key = 'tags'
