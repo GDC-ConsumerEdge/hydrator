@@ -173,24 +173,26 @@ def parse_args() -> argparse.Namespace:
     selector_mutex.add_argument(
         '--cluster-name',
         metavar='CLUSTER_NAME',
-        help='name of cluster to select from config')
+        action='append',
+        help='name of cluster to select from config; may be used more than once')
     selector_mutex.add_argument(
         '--cluster-tag',
         metavar='CLUSTER_TAG',
         action='append',
-        help='tag to use to select clusters from config; may be used more than '
-             'once')
+        help='tag to use to select clusters from config; may be used more than once')
     selector_mutex.add_argument(
         '--cluster-group',
         metavar='CLUSTER_GROUP',
-        help='name of cluster group to select from config')
+        action='append',
+        help='name of cluster group to select from config; may be used more than once')
 
     # these selectors are only for package hydration
     pkg_select_mutex = package.add_mutually_exclusive_group()
     pkg_select_mutex.add_argument(
         '--group',
         metavar='GROUP',
-        help='name of group to select from config')
+        action='append',
+        help='name of group to select from config; may be used more than once')
     pkg_select_mutex.add_argument(
         '--tag',
         metavar='TAG',
@@ -258,9 +260,9 @@ class BaseCli:
     _validators: list[BaseValidator]
     hydrators: list[BaseHydrator]
     _config: SotConfig
-    _name: str
-    _group: str
-    _tags: Set[str]
+    _names: set[str]
+    _groups: set[str]
+    _tags: set[str]
 
     # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
@@ -381,69 +383,34 @@ class BaseCli:
                             failures[h.name].append(cap_word_to_snake_case(v.__class__.__name__))
         return failures
 
-    async def _hydrate_one(self, config_data: SotConfig) -> None:
-        """Workflow for hydrating just one item
-
-        Args:
-            config_data: item config as dict
-
-        Returns:
-            integer exit code
-        """
-        try:
-            cfg: BaseConfig = config_data[self._name]
-        except KeyError:
-            self._logger.error(f'{self._name} not found in source of truth')
-            return
-        self._logger.info(f'Hydrating {self._name}')
-
-        cls: type[ClusterHydrator] | type[PackageHydrator]
-        if self._hyd_type is HydrateType.CLUSTER:
-            cls = ClusterHydrator
-        elif self._hyd_type is HydrateType.PACKAGE:
-            cls = PackageHydrator
-        else:
-            raise CliError(f'Unknown hydration type {self._hyd_type}')
-
-        hydrate = cls(
-            config=cfg,
-            temp=self._temp,
-            base=self._base,
-            overlay=self._overlay,
-            modules=self._modules,
-            hydrated=self._hydrated,
-            output_subdir=self._output_subdir,
-            oci_client=self._oci_client,
-            oci_tags=self._oci_tags,
-            validators=self._validators,
-            preserve_temp=self._preserve_temp,
-            split_output=self._split_output,
-        )
-        self.hydrators.append(hydrate)
-        await hydrate.run()
-        await hydrate.cleanup()
-
     def _filter_item(self, item: str, item_config: BaseConfig) -> bool:
+        if self._names:
+            if item_config.name not in self._names:
+                self._logger.debug(f"{self._hyd_type.value.title()} '{item}': not in "
+                                   f"provided name selectors; not hydrating...")
+                return True
+
+        if self._groups:
+            if item_config.group not in self._groups:
+                self._logger.debug(f"{self._hyd_type.value.title()} '{item}': not in "
+                                   f"'provided group selectors; not hydrating...")
+                return True
+
         # if tags provided as args
         if self._tags:
             try:
                 # split config tags into a set
                 config_tags = {t.strip() for t in item_config.tags.split(",")}
             except KeyError:
-                self._logger.warning(f'Config {item}: specified tags as args but has none in '
-                                     f'config file')
+                self._logger.warning(f"{self._hyd_type.value.title()} '{item}': specified tags as "
+                                     f"args but has none in config file")
                 return True
 
             # if config tags don't intersect with tags from args,
             # then don't hydrate item
             if not config_tags.intersection(self._tags):
-                self._logger.debug(f"Config {item}: no matching tags; not hydrating.")
-                return True
-
-        if self._group:
-            if self._group.strip().lower() != item_config.group.strip().lower():
-                self._logger.debug(f"{self._hyd_type.value.title()} '{item}': not in group "
-                                   f"'{self._group}'; not hydrating...")
+                self._logger.debug(f"{self._hyd_type.value.title()} '{item}': no matching tags; "
+                                   f"not hydrating.")
                 return True
 
         return False
@@ -489,7 +456,7 @@ class BaseCli:
                     f'Worker {worker} caught generic exception on hydrator {hydrator.name}',
                     exc_info=e)
 
-    async def _hydrate_many_async(self, cls, config_data):
+    async def _hydrate_async(self, cls, config_data):
         tasks = []
         queue = asyncio.Queue()
 
@@ -503,7 +470,7 @@ class BaseCli:
         await asyncio.gather(*tasks)
 
     # pylint: disable-next=too-many-branches
-    async def _hydrate_many(self, config_data: SotConfig) -> None:
+    async def _hydrate(self, config_data: SotConfig) -> None:
         """Workflow for hydrating more than one item, such as when a
         group, tags, or all items are scoped
 
@@ -523,7 +490,7 @@ class BaseCli:
 
         # if we have more than zero workers
         if self._workers > 0:
-            await self._hydrate_many_async(cls, config_data)
+            await self._hydrate_async(cls, config_data)
             return
 
         # otherwise...
@@ -552,13 +519,19 @@ class BaseCli:
             reader = csv.DictReader(sot_f, dialect='excel')
             row: dict[str, str]
             for row in reader:
-                cfg = dcls({k.strip(): v.strip() for k, v in row.items() if row})
+                try:
+                    cfg = dcls({k.strip(): v.strip() for k, v in row.items() if row})
+                except AttributeError as e:
+                    self._logger.error(f'Check source of truth format; skipping line '
+                                       f'{reader.line_num} with error: {e}')
+                    continue
+
                 self._logger.debug(f'Got config from CSV:\n{pprint.pformat(cfg)}')
 
                 try:
                     check_config(cfg)
                 except ConfigWarning as e:
-                    self._logger.warning(f"Skipping row {reader.line_num}: {e}")
+                    self._logger.warning(f"Skipping line {reader.line_num}: {e}")
                     del data[cfg.name]
                 except ConfigError as e:
                     self._logger.error(e)
@@ -583,12 +556,7 @@ class BaseCli:
 
         self.hydrators = []
 
-        # a single name is specified
-        if self._name:
-            await self._hydrate_one(config_data)
-        # filter by tags, groups, or process all in config
-        else:
-            await self._hydrate_many(config_data)
+        await self._hydrate(config_data)
 
         failures = self.report()
 
@@ -602,13 +570,13 @@ class ClusterCli(BaseCli):
     """ CLI class for cluster hydration """
 
     def __init__(self, *,
-                 cluster_name: str,
+                 cluster_name: set[str],
                  cluster_tag: set[str],
-                 cluster_group: str,
+                 cluster_group: set[str],
                  **kwargs):
         super().__init__(**kwargs)
-        self._name = cluster_name
-        self._group = cluster_group
+        self._names = cluster_name
+        self._groups = cluster_group
         self._tags = cluster_tag
 
 
@@ -616,10 +584,10 @@ class PackageCli(BaseCli):
     """ CLI class for package hydration """
 
     def __init__(self, *,
-                 package_group: str,
+                 package_groups: set[str],
                  package_tags: set[str],
                  **kwargs):
         super().__init__(**kwargs)
-        self._name = package_group
-        self._group = package_group
+        self._names = package_groups
+        self._groups = package_groups
         self._tags = package_tags
