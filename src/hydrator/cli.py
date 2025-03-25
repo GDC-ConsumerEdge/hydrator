@@ -284,6 +284,9 @@ class BaseCli:
                  preserve_temp: bool,
                  split_output: bool,
                  workers: int):
+        if self.__class__ is BaseCli:
+            raise TypeError("BaseCli cannot be directly instantiated")
+
         self._logger = logger
         self._sot_file = sot_file
         self._temp = temp

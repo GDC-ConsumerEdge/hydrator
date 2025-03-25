@@ -64,6 +64,9 @@ class BaseHydrator(LoggingMixin):
                  validators: list[BaseValidator] | None = None,
                  preserve_temp: bool = False,
                  split_output: bool = False):
+        if self.__class__ is BaseHydrator:
+            raise TypeError("BaseHydrator cannot be directly instantiated")
+
         self.config = config
         # pylint: disable=duplicate-code
         self._temp = temp

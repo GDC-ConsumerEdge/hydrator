@@ -30,6 +30,8 @@ class BaseValidator(abc.ABC):
     config: BaseConfig | None
 
     def __init__(self, name: str) -> None:
+        if self.__class__ is BaseValidator:
+            raise TypeError("BaseValidator cannot be directly instantiated")
         self.valid: bool | None = None
         self.name = name
 
