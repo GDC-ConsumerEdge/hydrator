@@ -23,6 +23,7 @@ import pathlib
 import pprint
 import sys
 from typing import Set
+from importlib.metadata import version
 
 from .exc import CliError, ConfigWarning, ConfigError
 from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
@@ -64,6 +65,7 @@ def parse_args() -> argparse.Namespace:
         help='When set uses async workers to hydrate resources; defaults to sync hydration. '
              'Recommend starting at 25'
     )
+    root_parser.add_argument('--version', action='version', version=version('hydrator'))
 
     subparser = root_parser.add_subparsers(required=True)
     cluster = subparser.add_parser(
