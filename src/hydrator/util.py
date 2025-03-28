@@ -36,50 +36,46 @@ from .exc import CliWarning, ConfigWarning, ConfigError
 from .types import BaseConfig
 
 
-class TempDir:
-    """Represents a dir which is intended to be ephemeral.  Intended to be used
-    as an `argparse` argument type.
-
-    Usage:
-    ```
-    # specify a temporary directory
-    t = TempDir('foo/')
-    t()         # creates temp dir
-    t.cleanup() # all done
-
-    # use system default w/ context manager:
-    with TempDir():
-      # do stuff
-    ```
+class TemporaryDirectory(tempfile.TemporaryDirectory):
+    """ Subclass of tempfile.TemporaryDirectory.  Identical to it except that when using the `dir`
+    argument to the constructor, it will return a temporary directory with a path full expanded.
+    Async-compatible.
     """
     _temp: tempfile.TemporaryDirectory | None
 
-    def __init__(self, path: str | None = None):
-        if path is None:
-            # pylint: disable-next=consider-using-with
-            self._temp = tempfile.TemporaryDirectory()
-            self.path = pathlib.Path(self._temp.name).resolve()
-        else:
-            self._temp = None
-            self.path = pathlib.Path(path).resolve()
-            if self.path.exists():
-                raise argparse.ArgumentTypeError(
-                    f"provided directory '{self.path}' already exists")
+    def __init__(self,
+                 suffix: str | None = None,
+                 prefix: str | None = None,
+                 dir: pathlib.Path | None = None,  # pylint: disable=redefined-builtin
+                 ignore_cleanup_errors=False,
+                 *,
+                 create: bool = True,
+                 delete: bool = True) -> None:
+        if isinstance(dir, pathlib.Path):
+            dir = pathlib.Path(dir).expanduser().resolve()
+            if not dir.exists() and create:
+                dir.mkdir(parents=True, exist_ok=True)
 
-        self.path.mkdir(parents=True, exist_ok=True)
+        super().__init__(
+            prefix=prefix,
+            suffix=suffix,
+            dir=dir,
+            ignore_cleanup_errors=ignore_cleanup_errors,
+            delete=delete
+        )
+        self.path = pathlib.Path(self.name)
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.cleanup()
+        await self.acleanup()
 
-    async def cleanup(self):
-        """Cleans up (deletes) created directories"""
-        if self._temp is not None:
-            self._temp.cleanup()
-        else:
-            await aioshutil.rmtree(self.path, ignore_errors=True)
+    async def acleanup(self):
+        """ Async Cleanup
+        """
+        if self._delete:
+            await aioshutil.rmtree(self.path)
 
 
 class LazyFileType(argparse.FileType):

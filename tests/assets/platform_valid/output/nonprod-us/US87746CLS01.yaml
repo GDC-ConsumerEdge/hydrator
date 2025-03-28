@@ -1,0 +1,255 @@
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-repl-2
+parameters:
+  replication: "2"
+provisioner: robin
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-vm-repl-2-block-immediate
+parameters:
+  blocksize: "512"
+  faultdomain: host
+  replication: "2"
+provisioner: robin
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-vm-repl-3-block-immediate
+parameters:
+  blocksize: "512"
+  faultdomain: host
+  replication: "3"
+provisioner: robin
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: gateway-impersonate
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - user@example.com
+  - gsa@project-id.iam.gserviceaccount.com
+  - cluster-admin-group@example.com
+  resources:
+  - users
+  verbs:
+  - impersonate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: gateway-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: User
+  name: user@example.com
+- kind: User
+  name: bastion-sa@some-project.iam.gserviceaccount.com
+- kind: Group
+  name: cluster-admin-group@example.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: gateway-impersonate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gateway-impersonate
+subjects:
+- kind: ServiceAccount
+  name: connect-agent-sa
+  namespace: gke-connect
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+    name: robincli
+  name: robincli
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      foo: bar
+      name: robincli
+  template:
+    metadata:
+      annotations:
+        cluster-group: nonprod-us
+        configsync.gke.io/cluster-name-selector: US87746CLS01
+        managing-repo: platform
+        product: robin
+      labels:
+        foo: bar
+        name: robincli
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - -c
+        - mkdir -p /root/.robin; ln -s -t /usr/lib/python3.7/site-packages/ /opt/robin/current/python3/site-packages/robincli
+          /opt/robin/current/python3/site-packages/stormgr_def.py /opt/robin/current/python3/site-packages/stormgr_lib.py;
+          /opt/robin/current/bin/robin client add-context robin-master.robinio --set-current;
+          while true; do sleep 10000; done
+        image: gcr.io/anthos-edgecontainer-release/robin-storage/robinimg:5.3.16-682
+        name: robincli
+        resources:
+          requests:
+            cpu: 100m
+            memory: 10Mi
+        workingDir: /root
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-repl-2
+spec: {}
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-vm-repl-2-block-immediate
+spec:
+  claimPropertySets:
+  - accessModes:
+    - ReadWriteMany
+    volumeMode: Block
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: StorageProfile
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: robin-vm-repl-3-block-immediate
+spec:
+  claimPropertySets:
+  - accessModes:
+    - ReadWriteMany
+    volumeMode: Block
+---
+apiVersion: networking.gke.io/v1alpha1
+kind: ClusterDNS
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: default
+spec:
+  upstreamNameservers:
+  - serverIP: 8.8.8.8
+  - serverIP: 8.8.4.4
+---
+apiVersion: snapshot.storage.k8s.io/v1beta1
+deletionPolicy: Delete
+driver: robin
+kind: VolumeSnapshotClass
+metadata:
+  annotations:
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    app.kubernetes.io/instance: robin
+    app.kubernetes.io/managed-by: robin.io
+    app.kubernetes.io/name: robin
+    foo: bar
+  name: robin-snapshotclass
+---
+apiVersion: vm.cluster.gke.io/v1
+kind: VMRuntime
+metadata:
+  annotations:
+    client.lifecycle.config.k8s.io/mutation: ignore
+    cluster-group: nonprod-us
+    configsync.gke.io/cluster-name-selector: US87746CLS01
+    managing-repo: platform
+  labels:
+    foo: bar
+  name: vmruntime
+spec:
+  disableCDIUploadProxyVIP: true
+  enabled: true
+  evictionPolicy: {}
+  useEmulation: false
+  vmImageFormat: qcow2

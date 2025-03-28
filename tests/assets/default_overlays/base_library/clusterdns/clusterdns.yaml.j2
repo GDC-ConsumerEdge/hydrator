@@ -1,0 +1,9 @@
+apiVersion: networking.gke.io/v1alpha1
+kind: ClusterDNS
+metadata:
+  name: default
+spec:
+  upstreamNameservers:
+{% for ip in dns_servers.split(',')|map('trim') %}
+    - serverIP: {{ ip }}
+{% endfor %}
