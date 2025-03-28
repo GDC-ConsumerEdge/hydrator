@@ -3,7 +3,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hydration"
+name = "hydrator"
 authors = [
     { name = "Paul Durivage", email = "durivage@google.com" },
 ]
@@ -18,7 +18,8 @@ dependencies = { file = ["requirements.in"] }
 optional-dependencies.dev = { file = ["requirements-dev.in"] }
 
 [project.scripts]
-hydrate = "hydrate.__main__:main"
+hydrate = "hydrator.__main__:main"
+hydrator = "hydrator.__main__:main"
 
 [tool.pip-tools]
 generate-hashes = true
