@@ -16,7 +16,9 @@
 #
 ###############################################################################
 import abc
+import dataclasses
 import enum
+from dataclasses import dataclass
 
 
 class HydrateType(enum.Enum):
@@ -74,3 +76,20 @@ class GroupConfig(BaseConfig):
 
 
 type SotConfig = dict[str, BaseConfig]
+
+
+@dataclass
+class HydratorStatus:
+    """ Hydrator status data class.  If all the attributes are considered successful and evaluate
+    to true, an instance of this class returns true when evaluated as a boolean using any boolean
+    logic.
+    """
+    hydrator_ok: bool = True
+    split_ok: bool = True
+    jinja_ok: bool = True
+    kustomize_ok: bool = True
+    validators_ok: bool = True
+    publish_ok: bool = True
+
+    def __bool__(self):
+        return all(v for k, v in dataclasses.asdict(self).items())

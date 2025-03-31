@@ -41,8 +41,6 @@ class TestClusterHydrationPlatformValidCasesAsync(unittest.TestCase):
         self.r = run_cli('tests/assets/platform_valid_async/sot.csv', **default_kwargs)
 
     def setUp(self):
-        # if '-v' in sys.argv:
-        #     print('-v in sys.argv')
         self.start_time = time.time()
 
     def tearDown(self):
@@ -255,3 +253,25 @@ class TestClusterHydrationPlatformValidCasesAsync(unittest.TestCase):
                 for f in output_files:
                     self.assertTrue(f.exists())
                     self.assertTrue(f.is_file())
+
+    def test_default_overlays(self):
+        main_args = ['--workers', '4']
+        subcommand_args = [
+            '-b', 'tests/assets/default_overlays/base_library',
+            '-o', 'tests/assets/default_overlays/overlays',
+            '--default-overlay', 'default'
+        ]
+        self.r = run_cli('tests/assets/default_overlays/sot.csv',
+                         main_args=main_args,
+                         subcommand_args=subcommand_args)
+        self.assertEqual(0, self.r.proc.returncode)
+        self.assertIn("4 clusters total, all rendered successfully",
+                      self.r.proc.stdout)
+        self.assertEqual("", self.r.proc.stderr)
+        with open('tests/assets/platform_valid/sot.csv') as f:
+            reader = csv.reader(f)
+            next(reader)  # discard header
+            for name, group, _, _ in reader:
+                output_file = self.r.out.joinpath(f'{group}/{name}.yaml')
+                self.assertTrue(output_file.exists()),
+                self.assertTrue(output_file.is_file())

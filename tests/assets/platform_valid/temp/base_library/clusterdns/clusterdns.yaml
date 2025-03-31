@@ -1,0 +1,8 @@
+apiVersion: networking.gke.io/v1alpha1
+kind: ClusterDNS
+metadata:
+  name: default
+spec:
+  upstreamNameservers:
+    - serverIP: 8.8.8.8
+    - serverIP: 8.8.4.4

@@ -22,14 +22,13 @@ import logging
 import pathlib
 import pprint
 import sys
-from typing import Set
 from importlib.metadata import version
 
 from .exc import CliError, ConfigWarning, ConfigError
 from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
 from .oci_registry import OCIClientFactory
 from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig
-from .util import LazyFileType, TempDir, \
+from .util import LazyFileType, TemporaryDirectory, \
     cap_word_to_snake_case, check_config
 from .validator import BaseValidator, Gatekeeper
 
@@ -106,11 +105,10 @@ def parse_args() -> argparse.Namespace:
             default=pathlib.Path('overlays/'),
             help='path to overlays; default: overlays/')
         p.add_argument(
-            '-t', '--temp',
-            metavar='TEMP_DIR',
-            type=TempDir,
-            default=TempDir(),
-            help='path to temporary workdir; default: uses system temp')
+            '-O', '--default-overlay',
+            metavar='DEFAULT_OVERLAY',
+            type=str,
+            help='default overlay to use when one cannot be found')
         p.add_argument(
             '-y', '--hydrated',
             metavar='HYDRATED_OUTPUT_DIR',
@@ -139,6 +137,11 @@ def parse_args() -> argparse.Namespace:
                  'defaults: validation-gatekeeper/constraints, '
                  'validation-gatekeeper/template-library'
         )
+        p.add_argument(
+            '-t', '--temp',
+            metavar='TEMP_DIR',
+            type=pathlib.Path,
+            help='path to temporary workdir; default: uses system temp')
         p.add_argument(
             '--preserve-temp',
             action='store_true',
@@ -259,38 +262,43 @@ class BaseCli:
     """ Implements the base CLI flow for two subcommands, group and cluster hydration.
     This is a base class and is not expected to be instantiated directly; things will break if so.
     """
+    _config: SotConfig
+    _groups: set[str]
+    _names: set[str]
+    _tags: set[str]
     _validators: list[BaseValidator]
     hydrators: list[BaseHydrator]
-    _config: SotConfig
-    _names: set[str]
-    _groups: set[str]
-    _tags: set[str]
 
     # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
                  logger: logging.Logger,
                  sot_file: LazyFileType,
-                 temp: TempDir,
-                 base: pathlib.Path,
-                 overlay: pathlib.Path,
-                 modules: pathlib.Path,
-                 hydrated: pathlib.Path,
+                 temp_path: pathlib.Path,
+                 base_path: pathlib.Path,
+                 overlay_path: pathlib.Path,
+                 default_overlay: str | None,
+                 modules_path: pathlib.Path,
+                 hydrated_path: pathlib.Path,
                  output_subdir: str,
                  gatekeeper_validation: bool,
                  gatekeeper_constraints: list[pathlib.Path],
                  oci_registry: str,
-                 oci_tags: Set[str],
+                 oci_tags: set[str],
                  hydration_type: HydrateType,
                  preserve_temp: bool,
                  split_output: bool,
                  workers: int):
+        if self.__class__ is BaseCli:
+            raise TypeError("BaseCli cannot be directly instantiated")
+
         self._logger = logger
         self._sot_file = sot_file
-        self._temp = temp
-        self._base = base
-        self._overlay = overlay
-        self._modules = modules
-        self._hydrated = hydrated
+        self._temp = temp_path
+        self._base_path = base_path
+        self._overlay_path = overlay_path
+        self._default_overlay = default_overlay
+        self._modules_path = modules_path
+        self._hydrated_path = hydrated_path
         self._output_subdir = output_subdir
         self._gatekeeper_validation = gatekeeper_validation
         self._gatekeeper_constraints = gatekeeper_constraints
@@ -366,23 +374,26 @@ class BaseCli:
         """
         failures = collections.defaultdict(list)
         for h in self.hydrators:
-            if not h.success:
-                if h.jinja_success is False:
+            if not h.status:
+                if h.status.jinja_ok is False:
                     failures[h.name].append('jinja')
 
-                if h.kustomize_success is False:
+                if h.status.kustomize_ok is False:
                     failures[h.name].append('kustomize')
 
-                if h.split_success is False:
+                if h.status.split_ok is False:
                     failures[h.name].append('split output')
 
-                if h.publish_success is False:
+                if h.status.publish_ok is False:
                     failures[h.name].append('OCI publish')
 
-                if not h.validators_success:
+                if not h.status.validators_ok:
                     for v in h.validated:
                         if v.valid is False:
                             failures[h.name].append(cap_word_to_snake_case(v.__class__.__name__))
+
+                if not h.status.hydrator_ok:
+                    failures[h.name].append('hydrator checks')
         return failures
 
     def _filter_item(self, item: str, item_config: BaseConfig) -> bool:
@@ -426,11 +437,15 @@ class BaseCli:
             self._logger.info(f'Hydrating {c}')
             hydrator = cls(
                 config=cfg,
-                temp=TempDir(),
-                base=self._base,
-                overlay=self._overlay,
-                modules=self._modules,
-                hydrated=self._hydrated,
+                temp=TemporaryDirectory(
+                    prefix=f"{cfg.name}_",
+                    dir=self._temp,
+                    delete=not self._preserve_temp),
+                base_path=self._base_path,
+                overlay_path=self._overlay_path,
+                default_overlay=self._default_overlay,
+                modules_path=self._modules_path,
+                hydrated_path=self._hydrated_path,
                 output_subdir=self._output_subdir,
                 oci_client=self._oci_client,
                 oci_tags=self._oci_tags,

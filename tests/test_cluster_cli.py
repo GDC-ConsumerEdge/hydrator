@@ -139,8 +139,6 @@ class TestClusterHydrationPlatformValidCases(unittest.TestCase):
         args = [*self.standard_args, "--cluster-name", "US62877CLS01",
                 "--cluster-name", "US75911CLS01"]
         r = run_cli('tests/assets/platform_valid/sot.csv', subcommand_args=args)
-        print(r.proc.stdout)
-        print(r.proc.stderr)
         self.assertIn("2 clusters total, all rendered successfully", r.proc.stdout)
         self.assertEqual("", r.proc.stderr)
         self.assertTrue(r.out.joinpath("nonprod-us/US62877CLS01.yaml").is_file())
@@ -309,6 +307,29 @@ class TestClusterHydrationPlatformValidCases(unittest.TestCase):
                     self.assertTrue(f.exists())
                     self.assertTrue(f.is_file())
 
+        r.temp.cleanup()
+
+
+class TestDefaultOverlays(TestClusterHydrationPlatformValidCases):
+    # we subclass the valid cases to ensure that everything behaves normally when we use
+    # default overlay; nothing should change at all.
+    standard_args = [
+        '-b', 'tests/assets/default_overlays/base_library',
+        '-o', 'tests/assets/default_overlays/overlays',
+        '--default-overlay', 'default'
+    ]
+
+    def test_default_overlays_argument_unset(self):
+        # making sure that it fails, as one would expect, without the default overlay flag
+        r = run_cli('tests/assets/default_overlays/sot.csv',
+                    subcommand_args=self.standard_args[:4])
+        self.assertEqual(1, r.proc.returncode)
+        self.assertIn("US75911CLS01: missing overlay for group 'prod-us'; nothing to hydrate",
+                      r.proc.stderr)
+        self.assertIn("US41273CLS01: missing overlay for group 'prod-us'; nothing to hydrate",
+                      r.proc.stderr)
+        self.assertIn("Total 4 clusters - 2 rendered successfully, 2 unsuccessful",
+                      r.proc.stderr)
         r.temp.cleanup()
 
 

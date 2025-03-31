@@ -25,10 +25,9 @@ from .exc import CliError, CliWarning
 from .krm import KrmResource, K8sResourceParser
 from .oci_registry import OCIClient
 from .process import Process
-from .types import BaseConfig, HydrateType
-from .util import is_jinja_template, \
-    package_oci_artifact, TempDir, LoggingMixin, FileCache, InMemoryTextFile, \
-    template_string
+from .types import BaseConfig, HydrateType, HydratorStatus
+from .util import is_jinja_template, package_oci_artifact, TemporaryDirectory, LoggingMixin, \
+    FileCache, InMemoryTextFile, template_string
 from .validator import BaseValidator
 
 
@@ -38,25 +37,24 @@ class BaseHydrator(LoggingMixin):
     _jinja_env: jinja2.Environment
     _hydration_dest: pathlib.Path
     _oci_client: OCIClient
-    _overlay_dir: pathlib.Path
     _visited_files: Set[pathlib.Path]
 
     __slots__ = [
-        'config', '_logger', '_temp', '_base', '_overlay', '_modules', '_hydrated',
-        '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type', '_validators', 'validated',
-        '_preserve_temp', '_split_output', 'success', 'split_success', 'jinja_success',
-        'kustomize_success', 'validators_success', 'publish_success', '_jinja_env',
-        '_hydration_dest', '_oci_client', '_overlay_dir', '_visited_files', 'rendered_fp'
+        'config', '_logger', '_temp', '_base_root_path', '_overlay_root_path', '_modules_path',
+        '_hydrated_path', '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type', '_validators',
+        'validated', '_preserve_temp', '_split_output', 'status', '_jinja_env', '_hydration_dest',
+        '_oci_client', '_overlay_path', '_visited_files', 'rendered_path'
     ]
 
-    # pylint: disable-next=too-many-arguments
+    # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
                  config: BaseConfig,
-                 temp: TempDir,
-                 base: pathlib.Path,
-                 overlay: pathlib.Path,
-                 modules: pathlib.Path,
-                 hydrated: pathlib.Path,
+                 temp: TemporaryDirectory,
+                 base_path: pathlib.Path,
+                 overlay_path: pathlib.Path,
+                 default_overlay: str | None,
+                 modules_path: pathlib.Path,
+                 hydrated_path: pathlib.Path,
                  output_subdir: str,
                  oci_client: OCIClient,
                  oci_tags: Set[str],
@@ -64,37 +62,50 @@ class BaseHydrator(LoggingMixin):
                  validators: list[BaseValidator] | None = None,
                  preserve_temp: bool = False,
                  split_output: bool = False):
+        if self.__class__ is BaseHydrator:
+            raise TypeError("BaseHydrator cannot be directly instantiated")
+
+        # private attribs
         self.config = config
-        # pylint: disable=duplicate-code
         self._temp = temp
-        self._base = base
-        self._overlay = overlay
-        self._modules = modules
-        self._hydrated = hydrated
+        self._base_root_path = base_path
+        self._overlay_root_path = overlay_path
+        self._modules_path = modules_path
+        self._hydrated_path = hydrated_path
         self._output_subdir = output_subdir
         self._oci_client = oci_client
-        self.oci_tags = oci_tags
         self._hyd_type = hydration_type
         self._validators: list[BaseValidator] = validators if validators else []
-        self.validated: list[BaseValidator] = []
         self._preserve_temp = preserve_temp
         self._split_output = split_output
-        self.success: bool = True
-        self.split_success: bool | None = None
-        self.jinja_success: bool | None = None
-        self.kustomize_success: bool | None = None
-        self.validators_success: bool | None = None
-        self.publish_success: bool | None = None
-        self.rendered_fp: pathlib.Path | None = None
+
+        # construct a path to the overlay for this item
+        # first, we use the items group.  if that doesn't exist, we check if there is a default
+        # overlay specified.  if neither fo those are true, the overlay path doesn't exist
+        _overlay = self._overlay_root_path / self.config.group
+        _default_overlay = self._overlay_root_path / default_overlay if default_overlay else None
+        self._overlay_path: pathlib.Path | None
+        if _overlay.exists():
+            self._overlay_path = _overlay
+        elif _default_overlay and _default_overlay.exists():
+            self._overlay_path = _default_overlay
+        else:
+            self._overlay_path = None
+
+        # public attributes
+        self.oci_tags = oci_tags
+        self.validated: list[BaseValidator] = []
+        self.status = HydratorStatus()
+        self.rendered_path: pathlib.Path | None = None
 
         self._setup_logger('hydrator', self.name)
         self._setup_jinja()
 
     async def __aenter__(self):
-        pass
+        return await self._temp.__aenter__()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.cleanup()
+        return await self._temp.__aexit__(exc_type, exc_val, exc_tb)
 
     @property
     def name(self):
@@ -116,9 +127,7 @@ class BaseHydrator(LoggingMixin):
     # pylint: disable-next=too-many-branches
     async def _hydrate(self) -> None:
         """Process a given item using internal `config` """
-        # set concrete overlay dir (which is the overlay folder + group name)
-        self._overlay_dir = self._overlay.joinpath(self.config.group)
-        if not self._overlay_dir.exists():
+        if self._overlay_path is None:
             self.log(f"missing overlay for group '{self.config.group}'; "
                      f"nothing to hydrate", 'warning')
             raise CliWarning('No overlay')
@@ -140,24 +149,22 @@ class BaseHydrator(LoggingMixin):
             self.log(f'Not proceeding due to errors during copy/templating: {e}', 'error')
             return
 
-        self.jinja_success = True
-
         # setup hydrate source and destination directories and ensure dest exists
-        hydration_src = self._temp.path.joinpath(self._overlay.name, self.config.group)
+        hydration_src = self._temp.path.joinpath(*self._overlay_path.parts[-2:])
         if self._split_output:
             if self._hyd_type is HydrateType.CLUSTER:
-                hydration_dest = self._hydrated.joinpath(self.config.group, self.name)
+                hydration_dest = self._hydrated_path.joinpath(self.config.group, self.name)
             elif self._hyd_type is HydrateType.GROUP:
-                hydration_dest = self._hydrated.joinpath(self.name)
+                hydration_dest = self._hydrated_path.joinpath(self.name)
             else:
                 raise CliError(f'Unknown hydration type {self._hyd_type}')
         else:
             if self._output_subdir == 'cluster':
-                hydration_dest = self._hydrated.joinpath(self.name)
+                hydration_dest = self._hydrated_path.joinpath(self.name)
             elif self._output_subdir == 'group':
-                hydration_dest = self._hydrated.joinpath(self.config.group)
+                hydration_dest = self._hydrated_path.joinpath(self.config.group)
             else:  # is none
-                hydration_dest = self._hydrated
+                hydration_dest = self._hydrated_path
 
         hydration_dest.mkdir(parents=True, exist_ok=True)
 
@@ -167,24 +174,24 @@ class BaseHydrator(LoggingMixin):
         await self._run_kustomize(output_dir=hydration_dest,
                                   overlay_dir=hydration_src)
 
-        if self._split_output and self.kustomize_success:
+        if self._split_output and self.status.kustomize_ok:
             await self._split_manifest(output_dir=hydration_dest)
-        elif self._split_output and not self.kustomize_success:
+        elif self._split_output and not self.status.kustomize_ok:
             self.log('kustomize had errors; not splitting output', 'warning')
 
     def _generate_dirs(self):
-        self.log(f'Traversing source base path: {self._base}', 'debug')
-        yield from self._base.walk()
+        self.log(f'Traversing source base path: {self._base_root_path}', 'debug')
+        yield from self._base_root_path.walk()
 
-        self.log(f'Traversing source overlay path: {self._overlay_dir}', 'debug')
-        yield from self._overlay_dir.walk()
+        self.log(f'Traversing source overlay path: {self._overlay_path}', 'debug')
+        yield from self._overlay_path.walk()
 
-        if not self._modules.exists() or not self._modules.is_dir():
-            self.log(f'Modules directory path: {self._modules} is missing or invalid. '
+        if not self._modules_path.exists() or not self._modules_path.is_dir():
+            self.log(f'Modules directory path: {self._modules_path} is missing or invalid. '
                      f'Skipping traversal.', 'debug')
         else:
-            self.log(f'Traversing source modules path: {self._modules}', 'debug')
-            for root, dirs, files in self._modules.walk():
+            self.log(f'Traversing source modules path: {self._modules_path}', 'debug')
+            for root, dirs, files in self._modules_path.walk():
                 if '.git' in dirs:
                     dirs.remove('.git')
                 yield root, dirs, files
@@ -193,19 +200,19 @@ class BaseHydrator(LoggingMixin):
         # compute relative path from src root to copy into dest
         try:
             # Check if the root is within the _modules directory
-            if root == self._modules or self._modules in root.parents:
+            if root == self._modules_path or self._modules_path in root.parents:
                 # Construct the path to the base directory within self._temp
                 base_dir_in_temp = self._temp.path.joinpath(
-                    self._base.relative_to(self._base.parent))
+                    self._base_root_path.relative_to(self._base_root_path.parent))
 
                 # Construct the path to the 'modules' directory within base_dir_in_temp
-                relative_path = root.relative_to(self._modules)
+                relative_path = root.relative_to(self._modules_path)
                 next_path = base_dir_in_temp.joinpath('modules', relative_path)
             else:
-                relative_path = root.relative_to(self._base.parent)
+                relative_path = root.relative_to(self._base_root_path.parent)
                 next_path = self._temp.path.joinpath(relative_path)
         except ValueError:
-            relative_path = root.relative_to(self._overlay.parent)
+            relative_path = root.relative_to(self._overlay_root_path.parent)
             next_path = self._temp.path.joinpath(relative_path)
 
         return next_path, relative_path
@@ -289,9 +296,9 @@ class BaseHydrator(LoggingMixin):
                 exceptions are unexpected
         """
         filename = f'{self.name}.yaml'
-        self.rendered_fp = output_dir.joinpath(filename).resolve()
+        self.rendered_path = output_dir.joinpath(filename).resolve()
 
-        cmd = ["kustomize", "build", ".", "-o", str(self.rendered_fp)]
+        cmd = ["kustomize", "build", ".", "-o", str(self.rendered_path)]
 
         p = Process(cmd, logger_name='kustomize', name=self.name)
         try:
@@ -300,14 +307,12 @@ class BaseHydrator(LoggingMixin):
             self._set_failure(kustomize=True)
             raise CliError(str(e)) from e
 
-        if p.proc.returncode == 0:  # type: ignore
-            self.kustomize_success = True
-        else:
+        if p.proc.returncode != 0:  # type: ignore
             self._set_failure(kustomize=True)
 
     async def _open_or_create_file(self, file_path: pathlib.Path) -> Any:
-        """Opens a file if it exists and hasn't been opened previously.
-        Else, creates it and its parent directories.t
+        """ Opens a file if it exists and hasn't been opened previously; otherwise creates it and
+        its parent directories.
 
         Args:
             file_path: The path to the file.
@@ -334,22 +339,22 @@ class BaseHydrator(LoggingMixin):
             return await aiofiles.open(file_path, 'w', encoding="utf-8").__aenter__()
 
     async def _split_manifest(self, *, output_dir: pathlib.Path) -> None:
-        """Splits a monolithic manifest into smaller manifests based on resource mappings.
+        """ Splits a monolithic manifest into smaller manifests based on resource mappings.
            Updates 'self.rendered_fp' to new output directory containing all the split manifests.
 
-            Args:
-                output_dir: The output directory for the manifests.
-                resource_to_path: Mapping of k8s resource keys to file paths.
+        Args:
+            output_dir: The output directory for the manifests.
+            resource_to_path: Mapping of k8s resource keys to file paths.
 
-            Raises:
-                CliError: if any issues are encountered at runtime
+        Raises:
+            CliError: if any issues are encountered at runtime
         """
         base_library_dir_name = "base_library"
-        assert isinstance(self.rendered_fp, pathlib.Path)
+        assert isinstance(self.rendered_path, pathlib.Path)
         krm_parser = K8sResourceParser()
         try:
-            async with aiofiles.open(self.rendered_fp, 'r', encoding="utf-8") as f:
-                self.log(f'Preparing to split manifest: {self.rendered_fp}', 'debug')
+            async with aiofiles.open(self.rendered_path, 'r', encoding="utf-8") as f:
+                self.log(f'Preparing to split manifest: {self.rendered_path}', 'debug')
                 yaml_docs = yaml.load_all(await f.read(), yaml.CSafeLoader)
 
             filtered_yaml_docs: list[dict[str, Any]] = []
@@ -385,14 +390,14 @@ class BaseHydrator(LoggingMixin):
 
             # overwrite output manifest with resources that could not be mapped back to templates
             if filtered_yaml_docs:
-                async with aiofiles.open(self.rendered_fp, 'w', encoding="utf-8") as f:
+                async with aiofiles.open(self.rendered_path, 'w', encoding="utf-8") as f:
                     await f.write(yaml.dump_all(filtered_yaml_docs, Dumper=yaml.CSafeDumper,
                                                 default_flow_style=False))
             else:
                 self.log(f'All resources moved to separate manifest files. Deleting original '
-                         f'output manifest: {self.rendered_fp.name}.', 'debug')
-                self.rendered_fp.unlink()
-                self.rendered_fp = output_dir
+                         f'output manifest: {self.rendered_path.name}.', 'debug')
+                self.rendered_path.unlink()
+                self.rendered_path = output_dir
         except FileNotFoundError as e:
             self._set_failure(split=True)
             raise CliError(f"Rendered manifest not found: {e}") from e
@@ -401,37 +406,42 @@ class BaseHydrator(LoggingMixin):
             self._set_failure(split=True)
             raise CliError(f"Unexpected error: {e}") from e
 
-    def _set_failure(self, jinja: bool = False, kustomize: bool = False, split: bool = False,
-                     validator: bool = False, publish: bool = False):
+    def _set_failure(self,
+                     hydrator: bool = False,
+                     jinja: bool = False,
+                     kustomize: bool = False,
+                     split: bool = False,
+                     validator: bool = False,
+                     publish: bool = False):
         """
         Sets the failure flags for different stages of a process. Modifies the success attributes
         based on the boolean input parameters indicating failures in specific stages.
 
         Args:
+            hydrator (bool): Indicates whether there was a failure in hydrator
             jinja (bool): Indicates whether there was a failure in the Jinja stage.
             kustomize (bool): Indicates whether there was a failure in the Kustomize stage.
             split (bool): Indicates whether there was a failure in the Split stage.
             validator (bool): Indicates whether there was a failure in the Validator stage.
             publish (bool): Indicates whether there was a failure in the Publish stage.
         """
-        failure_modes = (jinja, kustomize, split, validator, publish)
-        if any(failure_modes):
-            self.success = False
+        if hydrator:
+            self.status.hydrator_ok = False
         if jinja:
-            self.jinja_success = False
+            self.status.jinja_ok = False
         if kustomize:
-            self.kustomize_success = False
+            self.status.kustomize_ok = False
         if split:
-            self.split_success = False
+            self.status.split_ok = False
         if validator:
-            self.validators_success = False
+            self.status.validators_ok = False
         if publish:
-            self.publish_success = False
+            self.status.publish_ok = False
 
     async def _validate(self):
         """Runs provided validators. Should be run after templates are hydrated
         """
-        if self.rendered_fp is None:
+        if self.rendered_path is None:
             self.log('No rendered manifest to validate.', 'warning')
             return
 
@@ -439,7 +449,7 @@ class BaseHydrator(LoggingMixin):
         for validator in self._validators:
             v = validator(self.name)
             try:
-                await v.run(config=self.config, hydrated_path=self.rendered_fp)
+                await v.run(config=self.config, hydrated_path=self.rendered_path)
             except CliWarning:
                 pass
 
@@ -451,8 +461,6 @@ class BaseHydrator(LoggingMixin):
         if any_failed:
             self._set_failure(validator=True)
             self.log("One or more validators failed. See logs for details.", 'warning')
-        else:
-            self.validators_success = True
 
     def _publish(self) -> None:
         """Publishes to OCI registry. Should be run after optional validation
@@ -474,37 +482,30 @@ class BaseHydrator(LoggingMixin):
             self.name,
             self.oci_tags)
 
-        self.publish_success = True
-
-    async def cleanup(self) -> None:
-        """Removes the directories/files created by hydration, specifically
-        the temp space.
-        """
-        if not self._preserve_temp:
-            await self._temp.cleanup()
-
     async def run(self) -> None:
         """Orchestrates the hydration process flow.
         """
         self.log(f'Using temp dir: {self._temp.path}', 'debug')
         self._visited_files = set()
-        await self._hydrate()
+        try:
+            await self._hydrate()
+        except CliWarning:
+            self._set_failure(hydrator=True)
+            return
 
-        if (self.jinja_success is not False
-                and self.kustomize_success is not False
-                and self.split_success is not False):
+        if self.status.jinja_ok and self.status.kustomize_ok and self.status.split_ok:
             await self._validate()
         else:
             errs = []
-            if self.jinja_success is False:
+            if self.status.jinja_ok is False:
                 errs.append('Jinja')
-            if self.kustomize_success is False:
+            if self.status.kustomize_ok is False:
                 errs.append('Kustomize')
-            if self.split_success is False:
+            if self.status.split_ok:
                 errs.append('split output')
             self.log(f"not validating due to issues with {", ".join(errs)}", 'warning')
 
-        if self.success and self._oci_client:
+        if self.status and self._oci_client:
             try:
                 self._publish()
             except CliWarning:
