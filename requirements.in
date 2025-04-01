@@ -1,5 +1,4 @@
-Jinja2~=3.1.6
-MarkupSafe~=2.1.5
-PyYAML~=6.0.2
-aiofiles~=24.1.0
-aioshutil~=1.5
+Jinja2 >=3.1.6, < 4
+PyYAML >= 6.0.2, < 7
+aiofiles >= 24.1.0 ,< 25
+aioshutil >= 1.5, < 2

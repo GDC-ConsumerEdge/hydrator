@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>78", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,7 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache License Version 2.0" }
+license = "Apache-2.0"
 version = "2.0.0"
 dynamic = ["dependencies", "optional-dependencies"]
 
