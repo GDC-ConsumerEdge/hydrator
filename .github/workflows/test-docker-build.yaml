@@ -1,0 +1,16 @@
+on:
+  pull_request:
+    branches:
+      - main
+
+name: test dockerfile
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build
+        run: docker build -t hydrator .
+      - name: invoke built image
+        run: docker run -i hydrator:latest --version
