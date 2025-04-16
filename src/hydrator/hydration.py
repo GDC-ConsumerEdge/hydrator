@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 ###############################################################################
+import asyncio
 import pathlib
 from typing import Any, Optional, Set
 
@@ -27,7 +28,7 @@ from .oci_registry import OCIClient
 from .process import Process
 from .types import BaseConfig, HydrateType, HydratorStatus
 from .util import is_jinja_template, package_oci_artifact, TemporaryDirectory, LoggingMixin, \
-    FileCache, InMemoryTextFile, template_string
+    FileCache, InMemoryTextFile, template_string, sync_load_all_yaml
 from .validator import BaseValidator
 
 
@@ -355,7 +356,8 @@ class BaseHydrator(LoggingMixin):
         try:
             async with aiofiles.open(self.rendered_path, 'r', encoding="utf-8") as f:
                 self.log(f'Preparing to split manifest: {self.rendered_path}', 'debug')
-                yaml_docs = yaml.load_all(await f.read(), yaml.CSafeLoader)
+                content = await f.read()
+                yaml_docs = await asyncio.to_thread(sync_load_all_yaml, content)
 
             filtered_yaml_docs: list[dict[str, Any]] = []
             for doc in map(KrmResource, yaml_docs):
@@ -382,17 +384,25 @@ class BaseHydrator(LoggingMixin):
                         self.log('Encountered error removing UID; this is unexpected but '
                                  'probably innocuous', 'info')
 
-                    s = yaml.dump(doc, Dumper=yaml.CSafeDumper, default_flow_style=False)
-                    await f.write(s)
+                    yaml_string: str = await asyncio.to_thread(  # type: ignore
+                        yaml.dump,
+                        doc,
+                        Dumper=yaml.CSafeDumper,
+                        default_flow_style=False)
+                    await f.write(yaml_string)
                     await f.close()
                 else:
                     filtered_yaml_docs.append(doc)
 
             # overwrite output manifest with resources that could not be mapped back to templates
             if filtered_yaml_docs:
+                yaml_string = await asyncio.to_thread(  # type: ignore
+                    yaml.dump_all,
+                    filtered_yaml_docs,
+                    Dumper=yaml.CSafeDumper,
+                    default_flow_style=False)
                 async with aiofiles.open(self.rendered_path, 'w', encoding="utf-8") as f:
-                    await f.write(yaml.dump_all(filtered_yaml_docs, Dumper=yaml.CSafeDumper,
-                                                default_flow_style=False))
+                    await f.write(yaml_string)
             else:
                 self.log(f'All resources moved to separate manifest files. Deleting original '
                          f'output manifest: {self.rendered_path.name}.', 'debug')

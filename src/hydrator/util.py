@@ -31,6 +31,7 @@ from typing import IO, Self, Any
 import aiofiles
 import aioshutil
 import jinja2
+import yaml
 
 from .exc import CliWarning, ConfigWarning, ConfigError
 from .types import BaseConfig
@@ -442,3 +443,11 @@ class InMemoryTextFile:
         async with aiofiles.open(file_path, 'r', encoding=inst.encoding) as f:
             inst.contents = await f.read()
         return inst
+
+
+def sync_load_all_yaml(content: str) -> list[Any]:
+    """ Calls yaml.load_all on the content string and consumes the generator into a list,
+    performing all parsing synchronously. The advantage is that the work isn't deferred, it's
+    completed immediately before returning which is beneficial to us from within a thread.
+    """
+    return list(yaml.load_all(content, Loader=yaml.CSafeLoader))

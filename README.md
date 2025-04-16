@@ -255,10 +255,12 @@ Hydrator has added support for asynchronous hydration of cluster and package man
 is disabled by default. To use, pass the `--workers` flag during invocation. For example:
 
 ```shell
-hydrate -v --workers=50 cluster sot.csv --gatekeeper-validation --split-output
+hydrate -v --workers=32 cluster sot.csv --gatekeeper-validation --split-output
 ```
 
-The recommended max number of workers is `50` based on testing.
+The recommended number of workers to use is 2 for every CPU core available. If you are still not seeing the performance
+improvements you would like, we recommend allocating more CPUs to hydrator and to increase the number of workers
+accordingly.  For example, if you have allocated 16 (v)CPUS, use 32 workers.
 
 Note that increasing the number of concurrent workers dramatically reduces the usefulness of hydrator output, as the
 output of concurrent tasks are writing to the console at the same time, commingling messages. If you are troubleshooting

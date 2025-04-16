@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 ###############################################################################
+import asyncio
 import json
 import pathlib
 from collections import defaultdict
@@ -22,7 +23,7 @@ from typing import Any
 import yaml
 
 from .exc import CliWarning
-from .util import SingletonMixin, is_valid_object, sha256_digest, LoggingMixin
+from .util import SingletonMixin, is_valid_object, sha256_digest, LoggingMixin, sync_load_all_yaml
 
 type KrmObjectKey = str
 type YamlDoc = dict[str, Any]
@@ -164,7 +165,7 @@ class K8sResourceParser(SingletonMixin, LoggingMixin):
         """
         processed_docs = []
         try:
-            yaml_docs = yaml.load_all(yaml_string, yaml.CSafeLoader)
+            yaml_docs = await asyncio.to_thread(sync_load_all_yaml, yaml_string)
             for doc in yaml_docs:
                 try:
                     assert isinstance(doc, dict)
@@ -201,4 +202,9 @@ class K8sResourceParser(SingletonMixin, LoggingMixin):
             msg = f"Error processing YAML document: {e}"
             raise CliWarning(msg) from e
 
-        return yaml.dump_all(processed_docs, Dumper=yaml.CSafeDumper, explicit_start=True)
+        yaml_string = await asyncio.to_thread(
+            yaml.dump_all,
+            processed_docs,
+            Dumper=yaml.CSafeDumper,
+            explicit_start=True)
+        return yaml_string
