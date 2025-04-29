@@ -43,6 +43,13 @@ def main() -> int:
 
     logger.debug(f'Received args: {pprint.pformat(vars(args))}')
 
+    try:
+        # pylint: disable-next=protected-access,line-too-long
+        logger.debug(f'Running with GIL {'enabled' if sys._is_gil_enabled() else 'disabled'} '  # type: ignore
+                     f'on Python {sys.version}')
+    except AttributeError:
+        logger.debug(f'Running with GIL enabled on Python {sys.version}')
+
     cli: GroupCli | ClusterCli
     try:
         if args.type is HydrateType.CLUSTER:

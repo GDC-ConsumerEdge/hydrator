@@ -23,6 +23,7 @@ import pathlib
 import pprint
 import sys
 from importlib.metadata import version
+from typing import Generator
 
 from .exc import CliError, ConfigWarning, ConfigError
 from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
@@ -428,13 +429,12 @@ class BaseCli:
 
         return False
 
-    def _generate_hydrators(self, cls, config_data):
+    def _generate_hydrators(self, cls, config_data) -> Generator:
         for c, cfg in config_data.items():
             self._logger.debug(f'Starting hydration setup for {c}')
             if self._filter_item(c, cfg):
                 continue
 
-            self._logger.info(f'Hydrating {c}')
             hydrator = cls(
                 config=cfg,
                 temp=TemporaryDirectory(
@@ -456,6 +456,11 @@ class BaseCli:
             self.hydrators.append(hydrator)
             yield hydrator
 
+    async def _enqueue_hydrators(self, hydrators, queue):
+        for hydrator in hydrators:
+            await queue.put(hydrator)
+        self._logger.debug('Work generator finished enqueuing items')
+
     async def _hydration_worker(self, worker: int, queue: asyncio.Queue):
         self._logger.debug(f'Worker {worker} starting')
         while True:
@@ -467,18 +472,19 @@ class BaseCli:
 
             try:
                 async with hydrator:
+                    self._logger.info(f'Hydrating {hydrator.name}')
                     await hydrator.run()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 self._logger.exception(
                     f'Worker {worker} caught generic exception on hydrator {hydrator.name}',
                     exc_info=e)
+                queue.task_done()
 
     async def _hydrate_async(self, cls, config_data):
         tasks = []
-        queue = asyncio.Queue()
-
-        for hydrator in self._generate_hydrators(cls, config_data):
-            queue.put_nowait(hydrator)
+        queue = asyncio.Queue(self._workers * 2 if self._workers else 50)
+        gen = self._generate_hydrators(cls, config_data)
+        tasks.append(asyncio.create_task(self._enqueue_hydrators(gen, queue)))
 
         for i in range(1, self._workers + 1):
             task = asyncio.create_task(self._hydration_worker(i, queue))
