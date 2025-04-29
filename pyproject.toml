@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hydrator"
 authors = [
     { name = "Paul Durivage", email = "durivage@google.com" },
+    { name = "Kevin Park", email = "kevinpmwpark@google.com" },
 ]
 readme = "README.md"
 requires-python = ">=3.12"
