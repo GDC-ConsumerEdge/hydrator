@@ -1,7 +1,7 @@
 # Kubernetes Manifest Hydration
 
 Hydrator is an opinionated Kubernetes resource hydration CLI and workflow for hydrating cluster-and-group specific
-manifests. It's intended use case is the hydration of Kustomize-enabled packages of resources at a large scale (
+manifests. Its intended use case is the hydration of Kustomize-enabled packages of resources at a large scale (
 thousands or tens of thousands of clusters) where cluster-level variance is high while enabling users to follow DRY
 principles.
 
