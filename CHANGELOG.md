@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.0.0...v2.1.0) (2025-04-29)
+
+
+### Features
+
+* significantly improve YAML peformance with workers ([#20](https://github.com/GDC-ConsumerEdge/hydrator/issues/20)) ([033e6fd](https://github.com/GDC-ConsumerEdge/hydrator/commit/033e6fd462d993dd105cc38e9de5da693cc5aa45))
+
 ## [2.0.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v1.0.0...v2.0.0) (2025-03-31)
 
 
