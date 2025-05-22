@@ -25,8 +25,8 @@ import yaml
 from .exc import CliWarning
 from .util import SingletonMixin, is_valid_object, sha256_digest, LoggingMixin, sync_load_all_yaml
 
-type KrmObjectKey = str
-type YamlDoc = dict[str, Any]
+KrmObjectKey = str  # Changed to Python <3.12 compatible type alias
+YamlDoc = dict[str, Any]  # Changed to Python <3.12 compatible type alias
 
 
 class KrmResource(dict):

@@ -93,8 +93,9 @@ class Process(LoggingMixin):
 
         if isinstance(self.proc.returncode, int) and self.proc.returncode == 0:
             self.log(
-                f'{self.cmd[0]} completed successfully with '
-                f'exitcode {self.proc.returncode}', 'info')
+                f'{self.cmd[0]} completed successfully with exitcode {self.proc.returncode}',
+                'info')
         if isinstance(self.proc.returncode, int) and self.proc.returncode > 0:
             self.log(
-                f'{self.cmd[0]} exited with {self.proc.returncode}', 'warn')
+                f'{self.cmd[0]} exited with {self.proc.returncode}',
+                'warn')

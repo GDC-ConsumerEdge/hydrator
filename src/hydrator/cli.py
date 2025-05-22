@@ -28,7 +28,11 @@ from typing import Generator, Optional, Set, List # Added Optional, Set, List
 from .exc import CliError, ConfigWarning, ConfigError
 from .hydration import BaseHydrator, Hydrator # Updated import
 from .oci_registry import OCIClientFactory
-from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig, CliConfig, HydratorSharedConfig # Added HydratorSharedConfig
+from .types import (  # Updated imports for nesting
+    SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig, CliConfig,
+    HydratorSharedConfig, HydratorPathsConfig, HydratorOciConfig,
+    HydratorBehaviorConfig
+)
 from .util import LazyFileType, TemporaryDirectory, \
     cap_word_to_snake_case, check_config
 from .validator import BaseValidator, Gatekeeper
@@ -275,25 +279,29 @@ class BaseCli:
             raise TypeError("BaseCli cannot be directly instantiated")
 
         self._logger = logger
-        self._config = config  # Store the config object
+        self._config_obj = config  # Store the full CliConfig object, renamed to avoid conflict
 
-        # Initialize from CliConfig
-        self._sot_file = config.sot_file
-        self._temp = config.temp_path
-        self._base_path = config.base_path
-        self._overlay_path = config.overlay_path
-        self._default_overlay = config.default_overlay
-        self._modules_path = config.modules_path
-        self._hydrated_path = config.hydrated_path
-        self._output_subdir = config.output_subdir
-        self._gatekeeper_validation = config.gatekeeper_validation
-        self._gatekeeper_constraints = config.gatekeeper_constraints
-        self._oci_registry = config.oci_registry
-        self._oci_tags = config.oci_tags
-        self._hyd_type = config.hydration_type
-        self._preserve_temp = config.preserve_temp
-        self._split_output = config.split_output
-        self._workers = config.workers
+        # Initialize from nested CliConfig fields
+        self._sot_file = config.paths.sot_file
+        self._temp = config.paths.temp_path # Used by _generate_hydrators
+        self._base_path = config.paths.base_path
+        self._overlay_path = config.paths.overlay_path
+        self._modules_path = config.paths.modules_path
+        self._hydrated_path = config.paths.hydrated_path
+
+        self._oci_registry = config.oci.registry
+        self._oci_tags = config.oci.tags
+
+        self._gatekeeper_validation = config.validation.gatekeeper_validation
+        self._gatekeeper_constraints = config.validation.gatekeeper_constraints
+
+        self._output_subdir = config.behavior.output_subdir
+        self._preserve_temp = config.behavior.preserve_temp # Used by _generate_hydrators
+        self._split_output = config.behavior.split_output
+        self._workers = config.behavior.workers
+        self._default_overlay = config.behavior.default_overlay
+
+        self._hyd_type = config.hydration_type # Direct attribute
 
         # Initialize selector attributes
         self._names: Set[str] = set()
@@ -341,12 +349,15 @@ class BaseCli:
             total = len(self.hydrators)
             unsuccessful = len(failures.keys())
             successful = total - unsuccessful
-            print(f'\nTotal {total} {self._hyd_type.value}s - {successful} rendered '
-                  f'successfully, {unsuccessful} unsuccessful\n',
-                  file=sys.stderr)
+            message = (
+                f"\nTotal {total} {self._hyd_type.value}s - "
+                f"{successful} rendered successfully, "
+                f"{unsuccessful} unsuccessful\n"
+            )
+            print(message, file=sys.stderr)
         else:
-            print(f'{len(self.hydrators)} {self._hyd_type.value}s total, all rendered '
-                  f'successfully')
+            print(f'{len(self.hydrators)} {self._hyd_type.value}s total, '
+                  f'all rendered successfully')
 
         if failures:
             for n, errs in failures.items():
@@ -419,19 +430,28 @@ class BaseCli:
         return False
 
     def _generate_hydrators(self, config_data: SotConfig) -> Generator:
-        # Create HydratorSharedConfig from self (BaseCli instance)
-        shared_hydrator_cfg = HydratorSharedConfig(
+        # Create HydratorSharedConfig using nested structures
+        h_paths_cfg = HydratorPathsConfig(
             base_path=self._base_path,
             overlay_path=self._overlay_path,
             default_overlay=self._default_overlay,
             modules_path=self._modules_path,
-            hydrated_path=self._hydrated_path,
+            hydrated_path=self._hydrated_path
+        )
+        h_oci_cfg = HydratorOciConfig(
+            client=self._oci_client, # self._oci_client is setup in BaseCli._setup_oci_client
+            tags=self._oci_tags
+        )
+        h_behavior_cfg = HydratorBehaviorConfig(
             output_subdir=self._output_subdir,
-            oci_client=self._oci_client,
-            oci_tags=self._oci_tags,
-            validators=self._validators,
             preserve_temp=self._preserve_temp,
             split_output=self._split_output
+        )
+        shared_hydrator_cfg = HydratorSharedConfig(
+            paths=h_paths_cfg,
+            oci=h_oci_cfg,
+            behavior=h_behavior_cfg,
+            validators=self._validators # self._validators is setup in BaseCli._setup_validators
         )
 
         for c, cfg in config_data.items(): # c is item_name, cfg is item_config (BaseConfig type)
@@ -444,8 +464,8 @@ class BaseCli:
                 shared_config=shared_hydrator_cfg,
                 temp=TemporaryDirectory(
                     prefix=f"{cfg.name}_",
-                    dir=self._temp, # self._temp is from CliConfig.temp_path
-                    delete=not self._preserve_temp # self._preserve_temp is from CliConfig
+                    dir=self._temp, # self._temp is from CliConfig.paths.temp_path
+                    delete=not self._preserve_temp # self._preserve_temp from CliConfig.behavior.preserve_temp
                 ),
                 hydration_type=self._hyd_type # self._hyd_type is from CliConfig.hydration_type
             )

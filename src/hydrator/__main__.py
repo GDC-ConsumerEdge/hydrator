@@ -20,7 +20,7 @@ import sys
 
 from .cli import parse_args, ClusterCli, GroupCli
 from .exc import CliError
-from .types import HydrateType, CliConfig # Added CliConfig
+from .types import HydrateType, CliConfig, CliPathsConfig, CliOciConfig, CliValidationConfig, CliBehaviorConfig # Updated imports
 from .util import setup_logger
 
 
@@ -45,31 +45,49 @@ def main() -> int:
 
     try:
         # pylint: disable-next=protected-access,line-too-long
-        logger.debug(f'Running with GIL {'enabled' if sys._is_gil_enabled() else 'disabled'} '  # type: ignore
-                     f'on Python {sys.version}')
+        logger.debug(
+            f"Running with GIL {'enabled' if sys._is_gil_enabled() else 'disabled'} "
+            f"on Python {sys.version}"  # type: ignore
+        )
     except AttributeError:
         logger.debug(f'Running with GIL enabled on Python {sys.version}')
 
     cli: GroupCli | ClusterCli
 
-    # Create CliConfig from args
-    cli_config = CliConfig(
+    # Create CliConfig from args using the new nested structure
+    paths_config = CliPathsConfig(
         sot_file=args.sot_file,
         temp_path=args.temp,
         base_path=args.base,
         overlay_path=args.overlay,
-        default_overlay=args.default_overlay,
         modules_path=args.modules,
-        hydrated_path=args.hydrated,
-        output_subdir=args.output_subdir,
+        hydrated_path=args.hydrated
+    )
+
+    oci_config = CliOciConfig(
+        registry=args.oci_registry,
+        tags=args.oci_tags
+    )
+
+    validation_config = CliValidationConfig(
         gatekeeper_validation=args.gatekeeper_validation,
-        gatekeeper_constraints=args.gatekeeper_constraints,
-        oci_registry=args.oci_registry,
-        oci_tags=args.oci_tags,
-        hydration_type=args.type,
+        gatekeeper_constraints=args.gatekeeper_constraints
+    )
+
+    behavior_config = CliBehaviorConfig(
+        output_subdir=args.output_subdir,
         preserve_temp=args.preserve_temp,
         split_output=args.split_output,
-        workers=args.workers
+        workers=args.workers,
+        default_overlay=args.default_overlay # Moved here
+    )
+
+    cli_config = CliConfig(
+        paths=paths_config,
+        oci=oci_config,
+        validation=validation_config,
+        behavior=behavior_config,
+        hydration_type=args.type
     )
 
     try:
