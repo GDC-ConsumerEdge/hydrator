@@ -18,7 +18,13 @@
 import abc
 import dataclasses
 import enum
+import pathlib
+from typing import Optional, List, Set
 from dataclasses import dataclass
+
+from ..util import LazyFileType
+from ..oci_registry import OCIClient # Added OCIClient
+from ..validator import BaseValidator # Added BaseValidator
 
 
 class HydrateType(enum.Enum):
@@ -76,6 +82,43 @@ class GroupConfig(BaseConfig):
 
 
 type SotConfig = dict[str, BaseConfig]
+
+
+@dataclass
+class CliConfig:
+    """ Command Line Interface configuration options """
+    sot_file: LazyFileType
+    temp_path: pathlib.Path
+    base_path: pathlib.Path
+    overlay_path: pathlib.Path
+    default_overlay: Optional[str]
+    modules_path: pathlib.Path
+    hydrated_path: pathlib.Path
+    output_subdir: str
+    gatekeeper_validation: bool
+    gatekeeper_constraints: List[pathlib.Path]
+    oci_registry: Optional[str]
+    oci_tags: Optional[Set[str]]
+    hydration_type: HydrateType
+    preserve_temp: bool
+    split_output: bool
+    workers: int
+
+
+@dataclass
+class HydratorSharedConfig:
+    """ Configuration options shared across hydrators """
+    base_path: pathlib.Path
+    overlay_path: pathlib.Path
+    default_overlay: Optional[str]
+    modules_path: pathlib.Path
+    hydrated_path: pathlib.Path
+    output_subdir: str
+    oci_client: Optional[OCIClient]
+    oci_tags: Optional[Set[str]]
+    validators: List[BaseValidator]
+    preserve_temp: bool
+    split_output: bool
 
 
 @dataclass

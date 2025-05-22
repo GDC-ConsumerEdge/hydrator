@@ -20,7 +20,7 @@ import sys
 
 from .cli import parse_args, ClusterCli, GroupCli
 from .exc import CliError
-from .types import HydrateType
+from .types import HydrateType, CliConfig # Added CliConfig
 from .util import setup_logger
 
 
@@ -51,51 +51,42 @@ def main() -> int:
         logger.debug(f'Running with GIL enabled on Python {sys.version}')
 
     cli: GroupCli | ClusterCli
+
+    # Create CliConfig from args
+    cli_config = CliConfig(
+        sot_file=args.sot_file,
+        temp_path=args.temp,
+        base_path=args.base,
+        overlay_path=args.overlay,
+        default_overlay=args.default_overlay,
+        modules_path=args.modules,
+        hydrated_path=args.hydrated,
+        output_subdir=args.output_subdir,
+        gatekeeper_validation=args.gatekeeper_validation,
+        gatekeeper_constraints=args.gatekeeper_constraints,
+        oci_registry=args.oci_registry,
+        oci_tags=args.oci_tags,
+        hydration_type=args.type,
+        preserve_temp=args.preserve_temp,
+        split_output=args.split_output,
+        workers=args.workers
+    )
+
     try:
         if args.type is HydrateType.CLUSTER:
             cli = ClusterCli(
                 logger=logger,
-                sot_file=args.sot_file,
-                temp_path=args.temp,
-                base_path=args.base,
-                overlay_path=args.overlay,
-                default_overlay=args.default_overlay,
-                modules_path=args.modules,
-                hydrated_path=args.hydrated,
-                output_subdir=args.output_subdir,
-                gatekeeper_validation=args.gatekeeper_validation,
-                gatekeeper_constraints=args.gatekeeper_constraints,
-                oci_registry=args.oci_registry,
-                oci_tags=args.oci_tags,
-                hydration_type=args.type,
+                config=cli_config,
                 cluster_name=args.cluster_name,
                 cluster_tag=args.cluster_tag,
-                cluster_group=args.cluster_group,
-                preserve_temp=args.preserve_temp,
-                split_output=args.split_output,
-                workers=args.workers,
+                cluster_group=args.cluster_group
             )
         elif args.type is HydrateType.GROUP:
             cli = GroupCli(
                 logger=logger,
-                sot_file=args.sot_file,
-                temp_path=args.temp,
-                base_path=args.base,
-                overlay_path=args.overlay,
-                default_overlay=args.default_overlay,
-                modules_path=args.modules,
-                hydrated_path=args.hydrated,
-                output_subdir=args.output_subdir,
-                gatekeeper_validation=args.gatekeeper_validation,
-                gatekeeper_constraints=args.gatekeeper_constraints,
-                oci_registry=args.oci_registry,
-                oci_tags=args.oci_tags,
-                hydration_type=args.type,
+                config=cli_config,
                 groups=args.group,
-                tags=args.tag,
-                preserve_temp=args.preserve_temp,
-                split_output=args.split_output,
-                workers=args.workers,
+                tags=args.tag
             )
     except CliError as e:
         logger.error(e)

@@ -24,12 +24,12 @@ import yaml
 
 from .exc import CliError, CliWarning
 from .krm import KrmResource, K8sResourceParser
-from .oci_registry import OCIClient
+# OCIClient is part of HydratorSharedConfig, no direct import needed here if not used otherwise
 from .process import Process
-from .types import BaseConfig, HydrateType, HydratorStatus
+from .types import BaseConfig, HydrateType, HydratorStatus, HydratorSharedConfig # Added HydratorSharedConfig
 from .util import is_jinja_template, package_oci_artifact, TemporaryDirectory, LoggingMixin, \
     FileCache, InMemoryTextFile, template_string, sync_load_all_yaml
-from .validator import BaseValidator
+# BaseValidator is part of HydratorSharedConfig
 
 
 # pylint: disable-next=too-many-instance-attributes
@@ -37,65 +37,59 @@ class BaseHydrator(LoggingMixin):
     """ Implements a specific hydration flow """
     _jinja_env: jinja2.Environment
     _hydration_dest: pathlib.Path
-    _oci_client: OCIClient
+    # _oci_client is now part of shared_config
     _visited_files: Set[pathlib.Path]
 
+    # Updated __slots__
     __slots__ = [
         'config', '_logger', '_temp', '_base_root_path', '_overlay_root_path', '_modules_path',
         '_hydrated_path', '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type', '_validators',
         'validated', '_preserve_temp', '_split_output', 'status', '_jinja_env', '_hydration_dest',
-        '_oci_client', '_overlay_path', '_visited_files', 'rendered_path'
+        '_overlay_path', '_visited_files', 'rendered_path'
+        # Removed duplicate _oci_client from original slots, ensured all shared_config items are covered
     ]
 
-    # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
-                 config: BaseConfig,
+                 item_config: BaseConfig,
+                 shared_config: HydratorSharedConfig,
                  temp: TemporaryDirectory,
-                 base_path: pathlib.Path,
-                 overlay_path: pathlib.Path,
-                 default_overlay: str | None,
-                 modules_path: pathlib.Path,
-                 hydrated_path: pathlib.Path,
-                 output_subdir: str,
-                 oci_client: OCIClient,
-                 oci_tags: Set[str],
-                 hydration_type: HydrateType,
-                 validators: list[BaseValidator] | None = None,
-                 preserve_temp: bool = False,
-                 split_output: bool = False):
+                 hydration_type: HydrateType):
         if self.__class__ is BaseHydrator:
             raise TypeError("BaseHydrator cannot be directly instantiated")
 
-        # private attribs
-        self.config = config
+        # Ensure self.config is set before logger setup uses self.name
+        self.config = item_config
         self._temp = temp
-        self._base_root_path = base_path
-        self._overlay_root_path = overlay_path
-        self._modules_path = modules_path
-        self._hydrated_path = hydrated_path
-        self._output_subdir = output_subdir
-        self._oci_client = oci_client
-        self._hyd_type = hydration_type
-        self._validators: list[BaseValidator] = validators if validators else []
-        self._preserve_temp = preserve_temp
-        self._split_output = split_output
 
-        # construct a path to the overlay for this item
-        # first, we use the items group.  if that doesn't exist, we check if there is a default
-        # overlay specified.  if neither fo those are true, the overlay path doesn't exist
-        _overlay = self._overlay_root_path / self.config.group
-        _default_overlay = self._overlay_root_path / default_overlay if default_overlay else None
+        # Attributes from shared_config
+        self._base_root_path = shared_config.base_path
+        self._overlay_root_path = shared_config.overlay_path # Root for overlays
+        self._modules_path = shared_config.modules_path
+        self._hydrated_path = shared_config.hydrated_path
+        self._output_subdir = shared_config.output_subdir
+        self._oci_client = shared_config.oci_client # Optional OCIClient
+        self.oci_tags = shared_config.oci_tags # Optional Set[str], public
+        self._validators: list[BaseValidator] = shared_config.validators
+        self._preserve_temp = shared_config.preserve_temp
+        self._split_output = shared_config.split_output
+        
+        self._hyd_type = hydration_type # Store hydration_type
+
+        # Construct the specific overlay path for this item
+        _overlay = self._overlay_root_path / item_config.group
+        _default_overlay_path = self._overlay_root_path / shared_config.default_overlay if shared_config.default_overlay else None
         self._overlay_path: pathlib.Path | None
         if _overlay.exists():
             self._overlay_path = _overlay
-        elif _default_overlay and _default_overlay.exists():
-            self._overlay_path = _default_overlay
+        elif _default_overlay_path and _default_overlay_path.exists():
+            self._overlay_path = _default_overlay_path
         else:
             self._overlay_path = None
+            self.log(f"Warning: No overlay found for group '{item_config.group}' and no default overlay applicable.", 'warning')
 
-        # public attributes
-        self.oci_tags = oci_tags
-        self.validated: list[BaseValidator] = []
+
+        # Public attributes
+        self.validated: list[BaseValidator] = [] # Initialize as empty list
         self.status = HydratorStatus()
         self.rendered_path: pathlib.Path | None = None
 
@@ -111,7 +105,7 @@ class BaseHydrator(LoggingMixin):
     @property
     def name(self):
         """Convenience property to grab configured name"""
-        return self.config.name
+        return self.config.name # Uses item_config via self.config
 
     def _setup_jinja(self) -> None:
         """Setup jinja environment using internal tempdir at `self._temp`
@@ -384,9 +378,11 @@ class BaseHydrator(LoggingMixin):
                         self.log('Encountered error removing UID; this is unexpected but '
                                  'probably innocuous', 'info')
 
+                    # Ensure doc is a dict before dumping
+                    doc_to_dump = doc if isinstance(doc, dict) else doc.data
                     yaml_string: str = await asyncio.to_thread(  # type: ignore
                         yaml.dump,
-                        doc,
+                        doc_to_dump,
                         Dumper=yaml.CSafeDumper,
                         default_flow_style=False)
                     await f.write(yaml_string)
@@ -396,9 +392,11 @@ class BaseHydrator(LoggingMixin):
 
             # overwrite output manifest with resources that could not be mapped back to templates
             if filtered_yaml_docs:
+                # Ensure all items in filtered_yaml_docs are dicts
+                docs_to_dump = [d if isinstance(d, dict) else d.data for d in filtered_yaml_docs]
                 yaml_string = await asyncio.to_thread(  # type: ignore
                     yaml.dump_all,
-                    filtered_yaml_docs,
+                    docs_to_dump,
                     Dumper=yaml.CSafeDumper,
                     default_flow_style=False)
                 async with aiofiles.open(self.rendered_path, 'w', encoding="utf-8") as f:
@@ -525,23 +523,26 @@ class BaseHydrator(LoggingMixin):
                 self.log("could not publish to oci registry", 'warn')
 
 
-class ClusterHydrator(BaseHydrator):
-    """ Hydrator class for cluster-specific resources """
+class Hydrator(BaseHydrator):
+    """ Unified hydrator class for processing items based on HydrateType. """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, hydration_type=HydrateType.CLUSTER, **kwargs)
-        _name_key = 'cluster_name'
-        _group_key = 'cluster_group'
-        _tags_key = 'cluster_tags'
-        _disp_name = 'cluster'
+    # __slots__ could be defined here if Hydrator adds more attributes,
+    # but for now, it uses BaseHydrator's slots.
 
+    def __init__(self, *,
+                 item_config: BaseConfig,
+                 shared_config: HydratorSharedConfig,
+                 temp: TemporaryDirectory,
+                 hydration_type: HydrateType):
+        super().__init__(item_config=item_config,
+                         shared_config=shared_config,
+                         temp=temp,
+                         hydration_type=hydration_type)
+        # self._shared_config = shared_config # Already handled by BaseHydrator
+        # self._hydration_type = hydration_type # Already handled by BaseHydrator
 
-class GroupHydrator(BaseHydrator):
-    """ Hydrator class for group-specific resources """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, hydration_type=HydrateType.GROUP, **kwargs)
-        self._name_key = 'group'
-        self._group_key = 'group'
-        self._tags_key = 'tags'
-        self._disp_name = 'group'
+        # _disp_name is not explicitly set as an attribute.
+        # Logging can use self._hyd_type.value directly if needed, e.g.:
+        # self.log(f"Processing {self._hyd_type.value} {self.name}")
+        # The item's specific name (self.name) is used for logger setup in BaseHydrator.
+        # Keys like name_field, group_field, tags_field are accessible via self.config.

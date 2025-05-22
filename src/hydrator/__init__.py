@@ -14,3 +14,17 @@
 # limitations under the License.
 #
 ###############################################################################
+"""
+Hydrator package for configuration hydration.
+"""
+
+from .cli import BaseCli, ClusterCli, GroupCli
+from .hydration import BaseHydrator, Hydrator
+
+__all__ = [
+    "BaseCli",
+    "ClusterCli",
+    "GroupCli",
+    "BaseHydrator",
+    "Hydrator",
+]
