@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.1.0...v2.1.1) (2025-05-22)
+
+
+### Documentation
+
+* update README.md ([1eacd00](https://github.com/GDC-ConsumerEdge/hydrator/commit/1eacd00fc5df930f024f1223c37c7b67ef5abb5f))
+
 ## [2.1.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.0.0...v2.1.0) (2025-04-29)
 
 
