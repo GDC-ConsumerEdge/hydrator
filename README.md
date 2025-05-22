@@ -75,19 +75,19 @@ this tool for _all repositories_ in which it is used.
 
 #### Overview
 
-The base library (`base-library/`) contains Kustomize packages of resources. Each package is expected to contain a
+The base library (`base_library/`) contains Kustomize packages of resources. Each package is expected to contain a
 `kustomization.yaml` ([docs](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/)). No naming
 convention is specified, required, or enforced for package names or their directory structure; these are completely arbitrary and up to the user and their use case.
 There is no intention of supporting environment-specific bases here: each base is
 meant to be environment-agnostic, though there is nothing precluding this from being the pattern.
 
 A good starting point is using meaningful names related to the use case. Is the package full of region-specific RBAC for
-North America? Use `base-library/rbac-northam`. Package of a single application's container and service resources - for
-example, a payments processing service called _payments_: `base-library/payments-app`.
+North America? Use `base_library/rbac-northam`. Package of a single application's container and service resources - for
+example, a payments processing service called _payments_: `base_library/payments-app`.
 
 The overlays directory (`overlays/`) contains group or single cluster configuration overlays. Each subdirectory within `overlays/` is
 a _kustomization_ that represents a specific, opinionated configuration of base library packages.
-Crucially, a cluster's `cluster_group` (defined in the [Source of Truth](#source-of-truth)) maps it to its corresponding parent overlay directory within `overlays/`. For example, if a cluster has `cluster_group: prod-us-east`, its configuration will be sourced from the `overlays/prod-us-east/` kustomization.
+A key aspect of this structure is the mapping of a cluster's `cluster_group` (defined in the [Source of Truth](#source-of-truth)) to its corresponding parent overlay directory within `overlays/`. For example, if a cluster has `cluster_group: prod-us-east`, its configuration will be sourced from the `overlays/prod-us-east/` kustomization.
 
 An overlay may refer to a cluster, a group of clusters, or a specific environment. For example, the resources
 for a group of lab clusters in North America may be encapsulated in an overlay package named `overlays/nonprod-lab-northam`.
@@ -102,7 +102,7 @@ Kustomize.
 #### Use
 
 * For each group of clusters which should share configuration, create a corresponding overlay directory (e.g., `overlays/<cluster_group_name>/`).
-* Overlays refer to base library packages, making an overlay - essentially - a collection of packages tailored for that group.
+* Overlays refer to base library packages, effectively creating a collection of packages tailored for that group.
 
 ### Jinja
 
@@ -111,7 +111,7 @@ found [here](https://jinja.palletsprojects.com/en/3.1.x/templates/).
 
 Jinja is how one injects values from the [Source of Truth](#source-of-truth) into a file, regardless of its type.
 
-Hydrator discovers Jinja files (i.e. `base-library/my-special-package/some_random_file.yaml.j2`) using the file
+Hydrator discovers Jinja files (e.g. `base_library/my-special-package/some_random_file.yaml.j2`) using the file
 extension `.j2`. When hydrator encounters this extension during hydration, it immediately templates the file by passing
 the current cluster (or package) configuration to Jinja. This configuration comes from the source of truth. Because this
 data is processed for every row in the CSV on a per-cluster (or per-group for package hydration) basis, the entire row
@@ -215,7 +215,7 @@ validation-gatekeeper
         └── ubuntu-max-mem.yaml
 ```
 
-In the above example, once the validation module sees a `prod-us` folder, its contents are automatically included for clusters belonging to the `prod-us` group. Crucially, because the `all/` directory also exists, constraints from `all/` are applied globally to all clusters. Then, for clusters specifically in the `prod-us` group, the constraints from the `prod-us/` folder are applied *in addition* to those from `all/`. Any other group-specific folders (e.g., `dev-eu/`) or other folders at the same level that do not match the current cluster's group would be excluded from its validation process.
+In the above example, once the validation module sees a `prod-us` folder, its contents are automatically included for clusters belonging to the `prod-us` group. The presence of an `all/` directory is significant: constraints within `all/` are applied globally to all clusters. Then, for clusters specifically in the `prod-us` group, the constraints from the `prod-us/` folder are applied *in addition* to those from `all/`. Any other group-specific folders (e.g., `dev-eu/`) or other folders at the same level that do not match the current cluster's group would be excluded from its validation process.
 
 #### How it Works
 
@@ -339,7 +339,7 @@ The Hydrator CLI follows these steps to process your manifests:
     2.  This mapping tells the tool which overlay configuration to use for the current cluster.
 3.  **Temporary Workspace**: For each cluster, a temporary working directory is created to isolate processing steps.
 4.  **Jinja Configuration**: The cluster's configuration data (from its row in the source of truth CSV) is made available to the Jinja templating engine. This allows values from the CSV (like `cluster_name`, `cluster_group`, or any custom columns) to be used within Jinja templates (files ending in `.j2`).
-5.  **File Collection**: Hydrator reads the contents of the cluster's specific overlay directory (e.g., `overlays/prod-us/`) and the entire `base-library/`. It keeps track of original file information, like source paths, and correctly handles relative and symbolic links.
+5.  **File Collection**: Hydrator reads the contents of the cluster's specific overlay directory (e.g., `overlays/prod-us/`) and the entire `base_library/`. It keeps track of original file information, like source paths, and correctly handles relative and symbolic links.
 6.  **Jinja Template Rendering**: Files ending with the `.j2` extension are identified as Jinja templates and are then rendered (i.e., processed by the Jinja engine using the data from step 4).
 7.  **Writing to Temporary Directory**: The processed files are written to the cluster's temporary working directory.
     1.  For Jinja templates, the rendered output is saved with the original filename but without the `.j2` extension (e.g., `configmap.yaml.j2` becomes `configmap.yaml`). Other files are copied as-is.
@@ -472,7 +472,7 @@ $ docker run -it \
   -v ${DRY_REPO}/cluster-reg-template:/app/templates \
   -v ${WET_REPO}:/app/hydrated \
   hydrator \
-  -b /app/templates/base-library \
+  -b /app/templates/base_library \
   -o /app/templates/overlays \
   -y /app/hydrated/output \
   /app/templates/source_of_truth.csv
