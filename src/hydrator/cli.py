@@ -23,12 +23,16 @@ import pathlib
 import pprint
 import sys
 from importlib.metadata import version
-from typing import Generator
+from typing import Generator, Optional, Set, List # Added Optional, Set, List
 
 from .exc import CliError, ConfigWarning, ConfigError
-from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
+from .hydration import BaseHydrator, Hydrator # Updated import
 from .oci_registry import OCIClientFactory
-from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig
+from .types import (  # Updated imports for nesting
+    SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig, CliConfig,
+    HydratorSharedConfig, HydratorPathsConfig, HydratorOciConfig,
+    HydratorBehaviorConfig
+)
 from .util import LazyFileType, TemporaryDirectory, \
     cap_word_to_snake_case, check_config
 from .validator import BaseValidator, Gatekeeper
@@ -266,49 +270,44 @@ class BaseCli:
     _config: SotConfig
     _groups: set[str]
     _names: set[str]
-    _tags: set[str]
-    _validators: list[BaseValidator]
-    hydrators: list[BaseHydrator]
+    _tags: Set[str] # Changed to Set
+    _validators: List[BaseValidator] # Changed to List
+    hydrators: List[BaseHydrator] # Changed to List
 
-    # pylint: disable-next=too-many-arguments,too-many-locals
-    def __init__(self, *,
-                 logger: logging.Logger,
-                 sot_file: LazyFileType,
-                 temp_path: pathlib.Path,
-                 base_path: pathlib.Path,
-                 overlay_path: pathlib.Path,
-                 default_overlay: str | None,
-                 modules_path: pathlib.Path,
-                 hydrated_path: pathlib.Path,
-                 output_subdir: str,
-                 gatekeeper_validation: bool,
-                 gatekeeper_constraints: list[pathlib.Path],
-                 oci_registry: str,
-                 oci_tags: set[str],
-                 hydration_type: HydrateType,
-                 preserve_temp: bool,
-                 split_output: bool,
-                 workers: int):
+    def __init__(self, *, logger: logging.Logger, config: CliConfig):
         if self.__class__ is BaseCli:
             raise TypeError("BaseCli cannot be directly instantiated")
 
         self._logger = logger
-        self._sot_file = sot_file
-        self._temp = temp_path
-        self._base_path = base_path
-        self._overlay_path = overlay_path
-        self._default_overlay = default_overlay
-        self._modules_path = modules_path
-        self._hydrated_path = hydrated_path
-        self._output_subdir = output_subdir
-        self._gatekeeper_validation = gatekeeper_validation
-        self._gatekeeper_constraints = gatekeeper_constraints
-        self._oci_registry = oci_registry
-        self._oci_tags = oci_tags
-        self._hyd_type = hydration_type
-        self._preserve_temp = preserve_temp
-        self._split_output = split_output
-        self._workers = workers
+        self._config_obj = config  # Store the full CliConfig object, renamed to avoid conflict
+
+        # Initialize from nested CliConfig fields
+        self._sot_file = config.paths.sot_file
+        self._temp = config.paths.temp_path # Used by _generate_hydrators
+        self._base_path = config.paths.base_path
+        self._overlay_path = config.paths.overlay_path
+        self._modules_path = config.paths.modules_path
+        self._hydrated_path = config.paths.hydrated_path
+
+        self._oci_registry = config.oci.registry
+        self._oci_tags = config.oci.tags
+
+        self._gatekeeper_validation = config.validation.gatekeeper_validation
+        self._gatekeeper_constraints = config.validation.gatekeeper_constraints
+
+        self._output_subdir = config.behavior.output_subdir
+        self._preserve_temp = config.behavior.preserve_temp # Used by _generate_hydrators
+        self._split_output = config.behavior.split_output
+        self._workers = config.behavior.workers
+        self._default_overlay = config.behavior.default_overlay
+
+        self._hyd_type = config.hydration_type # Direct attribute
+
+        # Initialize selector attributes
+        self._names: Set[str] = set()
+        self._groups: Set[str] = set()
+        self._tags: Set[str] = set()
+
         self._setup_validators()
         self._setup_oci_client()
 
@@ -318,15 +317,13 @@ class BaseCli:
         Returns:
             sequence of validators to run
         """
-        validators = []
+        self._validators = []
         if self._gatekeeper_validation:
             try:
-                validators.append(
+                self._validators.append(
                     Gatekeeper.configure(constraint_paths=self._gatekeeper_constraints))
             except ValueError as e:
                 raise CliError(f'Error while setting up validators: {e}') from e
-
-        self._validators = validators
 
     def _setup_oci_client(self):
         """Create OCI client if required
@@ -352,12 +349,15 @@ class BaseCli:
             total = len(self.hydrators)
             unsuccessful = len(failures.keys())
             successful = total - unsuccessful
-            print(f'\nTotal {total} {self._hyd_type.value}s - {successful} rendered '
-                  f'successfully, {unsuccessful} unsuccessful\n',
-                  file=sys.stderr)
+            message = (
+                f"\nTotal {total} {self._hyd_type.value}s - "
+                f"{successful} rendered successfully, "
+                f"{unsuccessful} unsuccessful\n"
+            )
+            print(message, file=sys.stderr)
         else:
-            print(f'{len(self.hydrators)} {self._hyd_type.value}s total, all rendered '
-                  f'successfully')
+            print(f'{len(self.hydrators)} {self._hyd_type.value}s total, '
+                  f'all rendered successfully')
 
         if failures:
             for n, errs in failures.items():
@@ -429,29 +429,45 @@ class BaseCli:
 
         return False
 
-    def _generate_hydrators(self, cls, config_data) -> Generator:
-        for c, cfg in config_data.items():
+    def _generate_hydrators(self, config_data: SotConfig) -> Generator:
+        # Create HydratorSharedConfig using nested structures
+        h_paths_cfg = HydratorPathsConfig(
+            base_path=self._base_path,
+            overlay_path=self._overlay_path,
+            default_overlay=self._default_overlay,
+            modules_path=self._modules_path,
+            hydrated_path=self._hydrated_path
+        )
+        h_oci_cfg = HydratorOciConfig(
+            client=self._oci_client, # self._oci_client is setup in BaseCli._setup_oci_client
+            tags=self._oci_tags
+        )
+        h_behavior_cfg = HydratorBehaviorConfig(
+            output_subdir=self._output_subdir,
+            preserve_temp=self._preserve_temp,
+            split_output=self._split_output
+        )
+        shared_hydrator_cfg = HydratorSharedConfig(
+            paths=h_paths_cfg,
+            oci=h_oci_cfg,
+            behavior=h_behavior_cfg,
+            validators=self._validators # self._validators is setup in BaseCli._setup_validators
+        )
+
+        for c, cfg in config_data.items(): # c is item_name, cfg is item_config (BaseConfig type)
             self._logger.debug(f'Starting hydration setup for {c}')
-            if self._filter_item(c, cfg):
+            if self._filter_item(c, cfg): # filter_item uses self._names, self._groups, self._tags
                 continue
 
-            hydrator = cls(
-                config=cfg,
+            hydrator = Hydrator(
+                item_config=cfg,
+                shared_config=shared_hydrator_cfg,
                 temp=TemporaryDirectory(
                     prefix=f"{cfg.name}_",
-                    dir=self._temp,
-                    delete=not self._preserve_temp),
-                base_path=self._base_path,
-                overlay_path=self._overlay_path,
-                default_overlay=self._default_overlay,
-                modules_path=self._modules_path,
-                hydrated_path=self._hydrated_path,
-                output_subdir=self._output_subdir,
-                oci_client=self._oci_client,
-                oci_tags=self._oci_tags,
-                validators=self._validators,
-                preserve_temp=self._preserve_temp,
-                split_output=self._split_output,
+                    dir=self._temp, # self._temp is from CliConfig.paths.temp_path
+                    delete=not self._preserve_temp # self._preserve_temp from CliConfig.behavior.preserve_temp
+                ),
+                hydration_type=self._hyd_type # self._hyd_type is from CliConfig.hydration_type
             )
             self.hydrators.append(hydrator)
             yield hydrator
@@ -478,12 +494,15 @@ class BaseCli:
                 self._logger.exception(
                     f'Worker {worker} caught generic exception on hydrator {hydrator.name}',
                     exc_info=e)
-                queue.task_done()
+                # queue.task_done() # This was inside the try, should be in finally or always called
+            finally:
+                queue.task_done() # Ensure task_done is always called
 
-    async def _hydrate_async(self, cls, config_data):
+    async def _hydrate_async(self, config_data: SotConfig): # Removed cls
         tasks = []
         queue = asyncio.Queue(self._workers * 2 if self._workers else 50)
-        gen = self._generate_hydrators(cls, config_data)
+        # Call _generate_hydrators without cls
+        gen = self._generate_hydrators(config_data)
         tasks.append(asyncio.create_task(self._enqueue_hydrators(gen, queue)))
 
         for i in range(1, self._workers + 1):
@@ -503,21 +522,17 @@ class BaseCli:
         Returns:
             integer exit code
         """
-        cls: type[ClusterHydrator] | type[GroupHydrator]
-        if self._hyd_type is HydrateType.CLUSTER:
-            cls = ClusterHydrator
-        elif self._hyd_type is HydrateType.GROUP:
-            cls = GroupHydrator
-        else:
-            raise CliError(f'Unknown hydration type {self._hyd_type}')
+        # cls variable and its logic removed
 
         # if we have more than zero workers
         if self._workers > 0:
-            await self._hydrate_async(cls, config_data)
+            # Call _hydrate_async without cls
+            await self._hydrate_async(config_data)
             return
 
         # otherwise...
-        for hydrator in self._generate_hydrators(cls, config_data):
+        # Call _generate_hydrators without cls
+        for hydrator in self._generate_hydrators(config_data):
             async with hydrator:
                 await hydrator.run()
 
@@ -593,24 +608,26 @@ class ClusterCli(BaseCli):
     """ CLI class for cluster hydration """
 
     def __init__(self, *,
-                 cluster_name: set[str],
-                 cluster_tag: set[str],
-                 cluster_group: set[str],
-                 **kwargs):
-        super().__init__(**kwargs)
-        self._names = cluster_name
-        self._groups = cluster_group
-        self._tags = cluster_tag
+                 logger: logging.Logger,
+                 config: CliConfig,
+                 cluster_name: Optional[Set[str]],
+                 cluster_tag: Optional[Set[str]],
+                 cluster_group: Optional[Set[str]]):
+        super().__init__(logger=logger, config=config)
+        self._names = cluster_name if cluster_name else set()
+        self._tags = cluster_tag if cluster_tag else set()
+        self._groups = cluster_group if cluster_group else set()
 
 
 class GroupCli(BaseCli):
     """ CLI class for group hydration """
 
     def __init__(self, *,
-                 groups: set[str],
-                 tags: set[str],
-                 **kwargs):
-        super().__init__(**kwargs)
-        self._names = groups
-        self._groups = groups
-        self._tags = tags
+                 logger: logging.Logger,
+                 config: CliConfig,
+                 groups: Optional[Set[str]],
+                 tags: Optional[Set[str]]):
+        super().__init__(logger=logger, config=config)
+        self._names = groups if groups else set()
+        self._groups = groups if groups else set() # As per existing logic
+        self._tags = tags if tags else set()

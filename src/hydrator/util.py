@@ -26,7 +26,8 @@ import sys
 import tarfile
 import tempfile
 import threading
-from typing import IO, Self, Any
+from typing import IO, Any
+from typing_extensions import Self # Added import for Self
 
 import aiofiles
 import aioshutil
@@ -57,14 +58,20 @@ class TemporaryDirectory(tempfile.TemporaryDirectory):
             if not dir.exists() and create:
                 dir.mkdir(parents=True, exist_ok=True)
 
+        # Store delete flag for custom acleanup
+        self._delete = delete
+
+        # Call super().__init__ without the 'delete' argument for Python < 3.12 compatibility
         super().__init__(
             prefix=prefix,
             suffix=suffix,
             dir=dir,
-            ignore_cleanup_errors=ignore_cleanup_errors,
-            delete=delete
+            ignore_cleanup_errors=ignore_cleanup_errors
         )
         self.path = pathlib.Path(self.name)
+        # Ensure self._delete is set if not passed (though it has a default in signature)
+        # This line is redundant if 'delete' is always passed or has a default.
+        # self._delete = delete
 
     async def __aenter__(self):
         return self
@@ -183,7 +190,8 @@ class LoggingMixin:
             Result of logger method call; expected to be None
         """
         meth = getattr(self._logger, lvl)
-        meth(f"{self._prefix + ": " if self._prefix else ""}{msg}", **kwargs)
+        prefix_str = f"{self._prefix}: " if self._prefix else ""
+        meth(f"{prefix_str}{msg}", **kwargs)
 
 
 async def template_string(template_str: str, cluster_config: dict, hydrator: LoggingMixin) -> str:

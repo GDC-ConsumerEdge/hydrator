@@ -18,7 +18,13 @@
 import abc
 import dataclasses
 import enum
+import pathlib
+from typing import Optional, List, Set
 from dataclasses import dataclass
+
+from hydrator.util import LazyFileType # Changed to absolute import
+from hydrator.oci_registry import OCIClient # Changed to absolute import
+from hydrator.validator import BaseValidator # Changed to absolute import
 
 
 class HydrateType(enum.Enum):
@@ -75,7 +81,83 @@ class GroupConfig(BaseConfig):
     tags_field = "tags"
 
 
-type SotConfig = dict[str, BaseConfig]
+SotConfig = dict[str, BaseConfig] # Changed to Python <3.12 compatible type alias
+
+
+# --- Nested Dataclasses for CliConfig ---
+@dataclass
+class CliPathsConfig:
+    sot_file: LazyFileType
+    temp_path: pathlib.Path
+    base_path: pathlib.Path
+    overlay_path: pathlib.Path
+    modules_path: pathlib.Path
+    hydrated_path: pathlib.Path
+
+
+@dataclass
+class CliOciConfig:
+    registry: Optional[str]  # Renamed from oci_registry
+    tags: Optional[Set[str]]  # Renamed from oci_tags
+
+
+@dataclass
+class CliValidationConfig:
+    gatekeeper_validation: bool
+    gatekeeper_constraints: List[pathlib.Path]
+
+
+@dataclass
+class CliBehaviorConfig:
+    output_subdir: str
+    preserve_temp: bool
+    split_output: bool
+    workers: int
+    default_overlay: Optional[str] # Moved from CliConfig direct attributes
+
+
+# --- Updated CliConfig ---
+@dataclass
+class CliConfig:
+    """ Command Line Interface configuration options """
+    paths: CliPathsConfig
+    oci: CliOciConfig
+    validation: CliValidationConfig
+    behavior: CliBehaviorConfig
+    hydration_type: HydrateType  # Kept as a direct attribute
+
+
+# --- Nested Dataclasses for HydratorSharedConfig ---
+@dataclass
+class HydratorPathsConfig:
+    base_path: pathlib.Path
+    overlay_path: pathlib.Path  # Root overlay path
+    default_overlay: Optional[str]
+    modules_path: pathlib.Path
+    hydrated_path: pathlib.Path
+
+
+@dataclass
+class HydratorOciConfig:
+    client: Optional[OCIClient]  # Renamed from oci_client
+    tags: Optional[Set[str]]  # Renamed from oci_tags
+
+
+@dataclass
+class HydratorBehaviorConfig:
+    output_subdir: str
+    preserve_temp: bool
+    split_output: bool
+
+
+# --- Updated HydratorSharedConfig ---
+@dataclass
+class HydratorSharedConfig:
+    """ Configuration options shared across hydrators """
+    paths: HydratorPathsConfig
+    oci: HydratorOciConfig
+    behavior: HydratorBehaviorConfig
+    validators: List[BaseValidator]  # Kept as a direct attribute
 
 
 @dataclass

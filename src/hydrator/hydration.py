@@ -24,12 +24,12 @@ import yaml
 
 from .exc import CliError, CliWarning
 from .krm import KrmResource, K8sResourceParser
-from .oci_registry import OCIClient
+# OCIClient is part of HydratorSharedConfig, no direct import needed here if not used otherwise
 from .process import Process
-from .types import BaseConfig, HydrateType, HydratorStatus
+from .types import BaseConfig, HydrateType, HydratorStatus, HydratorSharedConfig # Added HydratorSharedConfig
 from .util import is_jinja_template, package_oci_artifact, TemporaryDirectory, LoggingMixin, \
     FileCache, InMemoryTextFile, template_string, sync_load_all_yaml
-from .validator import BaseValidator
+from hydrator.validator import BaseValidator # Added this import
 
 
 # pylint: disable-next=too-many-instance-attributes
@@ -37,65 +37,73 @@ class BaseHydrator(LoggingMixin):
     """ Implements a specific hydration flow """
     _jinja_env: jinja2.Environment
     _hydration_dest: pathlib.Path
-    _oci_client: OCIClient
+    # _oci_client is now part of shared_config
     _visited_files: Set[pathlib.Path]
 
+    # Updated __slots__
     __slots__ = [
-        'config', '_logger', '_temp', '_base_root_path', '_overlay_root_path', '_modules_path',
-        '_hydrated_path', '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type', '_validators',
-        'validated', '_preserve_temp', '_split_output', 'status', '_jinja_env', '_hydration_dest',
-        '_oci_client', '_overlay_path', '_visited_files', 'rendered_path'
+        'config', '_logger', '_temp',
+        '_base_root_path', '_overlay_root_path', '_modules_path', '_hydrated_path',
+        '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type',
+        '_validators', 'validated', '_preserve_temp', '_split_output',
+        'status', '_jinja_env', '_hydration_dest', '_overlay_path',
+        '_visited_files', 'rendered_path'
+        # Removed duplicate _oci_client from original slots,
+        # ensured all shared_config items are covered
     ]
 
-    # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
-                 config: BaseConfig,
+                 item_config: BaseConfig,
+                 shared_config: HydratorSharedConfig,
                  temp: TemporaryDirectory,
-                 base_path: pathlib.Path,
-                 overlay_path: pathlib.Path,
-                 default_overlay: str | None,
-                 modules_path: pathlib.Path,
-                 hydrated_path: pathlib.Path,
-                 output_subdir: str,
-                 oci_client: OCIClient,
-                 oci_tags: Set[str],
-                 hydration_type: HydrateType,
-                 validators: list[BaseValidator] | None = None,
-                 preserve_temp: bool = False,
-                 split_output: bool = False):
+                 hydration_type: HydrateType):
         if self.__class__ is BaseHydrator:
             raise TypeError("BaseHydrator cannot be directly instantiated")
 
-        # private attribs
-        self.config = config
+        # Ensure self.config is set before logger setup uses self.name
+        self.config = item_config
         self._temp = temp
-        self._base_root_path = base_path
-        self._overlay_root_path = overlay_path
-        self._modules_path = modules_path
-        self._hydrated_path = hydrated_path
-        self._output_subdir = output_subdir
-        self._oci_client = oci_client
-        self._hyd_type = hydration_type
-        self._validators: list[BaseValidator] = validators if validators else []
-        self._preserve_temp = preserve_temp
-        self._split_output = split_output
 
-        # construct a path to the overlay for this item
-        # first, we use the items group.  if that doesn't exist, we check if there is a default
-        # overlay specified.  if neither fo those are true, the overlay path doesn't exist
-        _overlay = self._overlay_root_path / self.config.group
-        _default_overlay = self._overlay_root_path / default_overlay if default_overlay else None
+        # Attributes from shared_config (using nested structure)
+        self._base_root_path = shared_config.paths.base_path
+        # Root for overlays
+        self._overlay_root_path = shared_config.paths.overlay_path
+        self._modules_path = shared_config.paths.modules_path
+        self._hydrated_path = shared_config.paths.hydrated_path
+
+        self._oci_client = shared_config.oci.client  # Optional OCIClient
+        self.oci_tags = shared_config.oci.tags  # Optional Set[str], public
+
+        self._output_subdir = shared_config.behavior.output_subdir
+        self._preserve_temp = shared_config.behavior.preserve_temp
+        self._split_output = shared_config.behavior.split_output
+
+        self._validators: list[BaseValidator] = shared_config.validators  # Direct attribute
+
+        self._hyd_type = hydration_type  # Store hydration_type
+
+        # Construct the specific overlay path for this item
+        # Uses item_config.group and shared_config.paths.default_overlay
+        _overlay = self._overlay_root_path / item_config.group
+        _default_overlay_path = (
+            self._overlay_root_path / shared_config.paths.default_overlay
+            if shared_config.paths.default_overlay else None
+        )
         self._overlay_path: pathlib.Path | None
         if _overlay.exists():
             self._overlay_path = _overlay
-        elif _default_overlay and _default_overlay.exists():
-            self._overlay_path = _default_overlay
+        elif _default_overlay_path and _default_overlay_path.exists():
+            self._overlay_path = _default_overlay_path
         else:
             self._overlay_path = None
+            self.log(
+                f"Warning: No overlay for group '{item_config.group}' "
+                f"and no default overlay applicable.",
+                'warning'
+            )
 
-        # public attributes
-        self.oci_tags = oci_tags
-        self.validated: list[BaseValidator] = []
+        # Public attributes
+        self.validated: list[BaseValidator] = [] # Initialize as empty list
         self.status = HydratorStatus()
         self.rendered_path: pathlib.Path | None = None
 
@@ -111,7 +119,7 @@ class BaseHydrator(LoggingMixin):
     @property
     def name(self):
         """Convenience property to grab configured name"""
-        return self.config.name
+        return self.config.name # Uses item_config via self.config
 
     def _setup_jinja(self) -> None:
         """Setup jinja environment using internal tempdir at `self._temp`
@@ -384,9 +392,11 @@ class BaseHydrator(LoggingMixin):
                         self.log('Encountered error removing UID; this is unexpected but '
                                  'probably innocuous', 'info')
 
+                    # Ensure doc is a dict before dumping
+                    doc_to_dump = doc if isinstance(doc, dict) else doc.data
                     yaml_string: str = await asyncio.to_thread(  # type: ignore
                         yaml.dump,
-                        doc,
+                        doc_to_dump,
                         Dumper=yaml.CSafeDumper,
                         default_flow_style=False)
                     await f.write(yaml_string)
@@ -396,9 +406,11 @@ class BaseHydrator(LoggingMixin):
 
             # overwrite output manifest with resources that could not be mapped back to templates
             if filtered_yaml_docs:
+                # Ensure all items in filtered_yaml_docs are dicts
+                docs_to_dump = [d if isinstance(d, dict) else d.data for d in filtered_yaml_docs]
                 yaml_string = await asyncio.to_thread(  # type: ignore
                     yaml.dump_all,
-                    filtered_yaml_docs,
+                    docs_to_dump,
                     Dumper=yaml.CSafeDumper,
                     default_flow_style=False)
                 async with aiofiles.open(self.rendered_path, 'w', encoding="utf-8") as f:
@@ -513,7 +525,8 @@ class BaseHydrator(LoggingMixin):
                 errs.append('Kustomize')
             if self.status.split_ok:
                 errs.append('split output')
-            self.log(f"not validating due to issues with {", ".join(errs)}", 'warning')
+            joined_errs = ", ".join(errs)
+            self.log(f"not validating due to issues with {joined_errs}", 'warning')
 
         if self.status and self._oci_client:
             try:
@@ -525,23 +538,21 @@ class BaseHydrator(LoggingMixin):
                 self.log("could not publish to oci registry", 'warn')
 
 
-class ClusterHydrator(BaseHydrator):
-    """ Hydrator class for cluster-specific resources """
+class Hydrator(BaseHydrator):
+    """ Unified hydrator class for processing items based on HydrateType. """
+    # No __init__ method needed here as it would be a useless delegation
+    # to BaseHydrator.__init__. Python will call the parent's __init__
+    # automatically with the same arguments if this class is instantiated
+    # with them.
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, hydration_type=HydrateType.CLUSTER, **kwargs)
-        _name_key = 'cluster_name'
-        _group_key = 'cluster_group'
-        _tags_key = 'cluster_tags'
-        _disp_name = 'cluster'
-
-
-class GroupHydrator(BaseHydrator):
-    """ Hydrator class for group-specific resources """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, hydration_type=HydrateType.GROUP, **kwargs)
-        self._name_key = 'group'
-        self._group_key = 'group'
-        self._tags_key = 'tags'
-        self._disp_name = 'group'
+    # __slots__ could be defined here if Hydrator adds more attributes,
+    # but for now, it inherits BaseHydrator's slots if BaseHydrator defines them,
+    # or has no slots if BaseHydrator doesn't.
+    # If BaseHydrator has __slots__ and Hydrator does not define its own,
+    # Hydrator instances will not be able to have additional attributes.
+    # If Hydrator needs to add attributes, it should define its own __slots__
+    # including those from BaseHydrator or remove __slots__ usage entirely
+    # (which might affect memory usage if many instances are created).
+    # For now, assuming BaseHydrator.__slots__ covers all necessary attributes
+    # or that Hydrator doesn't add new ones.
+    pass

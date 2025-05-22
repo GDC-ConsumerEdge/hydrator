@@ -148,12 +148,13 @@ class OrasCliClient(OCIClient):
             if p.returncode == 0:
                 self.valid = True
                 self._logger.info(
-                    f'{self._command} completed successfully with '
-                    f'exitcode {p.returncode}')
+                    f'{self._command} completed successfully with exitcode {p.returncode}'
+                )
             if p.returncode > 0:
                 self.valid = False
                 self._logger.error(
-                    f'{self._command} exited with {p.returncode}')
+                    f'{self._command} exited with {p.returncode}'
+                )
 
             return p.returncode
 
