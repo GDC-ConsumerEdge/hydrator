@@ -397,7 +397,7 @@ Consider the following which makes use of Python [virtualenvs](https://virtualen
 required.
 
 ```shell
-cd resource-hydrate-cli
+cd hydrator
 
 python3 -m venv venv
 
