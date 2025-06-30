@@ -195,9 +195,11 @@ class K8sResourceParser(SingletonMixin, LoggingMixin):
                 self._uid_to_path[uid_path_key].add(path)
 
 
-        except yaml.YAMLError as e:
-            msg = f"Error parsing YAML: {e}"
-            raise CliWarning(msg) from e
+        except yaml.YAMLError:
+            # If the file is not valid YAML, return its content unprocessed. This is
+            # expected for non-k8s files.
+            self.log(f"Skipping non-YAML file: {path}", "info")
+            return yaml_string
         except AttributeError as e:
             msg = f"Error processing YAML document: {e}"
             raise CliWarning(msg) from e
