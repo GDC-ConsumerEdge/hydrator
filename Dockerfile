@@ -1,4 +1,5 @@
-FROM --platform=linux/amd64 python:3.12-alpine
+# FROM python:3.12-alpine
+FROM python:3.12-alpine
 
 ARG KUSTOMIZE_VERSION=v5.4.3
 ARG GATOR_VERSION=v3.17.0
@@ -13,10 +14,24 @@ RUN apk add --no-cache curl && \
     rm gator-${GATOR_VERSION}-linux-amd64.tar.gz && \
     apk del curl
 
-ADD . /app
+ENV UV_LINK_MODE=copy
 WORKDIR /app
-RUN pip3 install -r requirements-setuptools.txt --require-hashes --no-cache-dir && \
-    pip3 install -r requirements.txt --require-hashes --no-cache-dir && \
-    pip3 install --no-deps --no-index --no-build-isolation .
 
-ENTRYPOINT [ "hydrate" ]
+# Install dependencies
+RUN --mount=from=ghcr.io/astral-sh/uv:alpine,source=/usr/local/bin/uv,target=/bin/uv \
+# RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev --verbose
+
+
+COPY src /app/src/
+COPY README.md .
+
+RUN --mount=from=ghcr.io/astral-sh/uv:alpine,source=/usr/local/bin/uv,target=/bin/uv \
+# RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-editable --no-dev --verbose
+
+    ENTRYPOINT [ "/app/.venv/bin/hydrate" ]
