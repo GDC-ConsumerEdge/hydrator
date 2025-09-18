@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 python:3.12-alpine
+FROM --platform=linux/amd64 python:3.14t-alpine
 
 ARG KUSTOMIZE_VERSION=v5.4.3
 ARG GATOR_VERSION=v3.17.0
@@ -13,10 +13,15 @@ RUN apk add --no-cache curl && \
     rm gator-${GATOR_VERSION}-linux-amd64.tar.gz && \
     apk del curl
 
+RUN apk add yaml-dev
+
 ADD . /app
 WORKDIR /app
-RUN pip3 install -r requirements-setuptools.txt --require-hashes --no-cache-dir && \
+RUN pip3 install --no-binary :all: pyyaml && \
+    pip3 install -r requirements-setuptools.txt --require-hashes --no-cache-dir && \
     pip3 install -r requirements.txt --require-hashes --no-cache-dir && \
     pip3 install --no-deps --no-index --no-build-isolation .
+
+ENV PYTHON_GIL 0
 
 ENTRYPOINT [ "hydrate" ]
