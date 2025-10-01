@@ -20,13 +20,14 @@
 import argparse
 import hashlib
 import logging
+import logging.handlers
 import os
 import pathlib
 import sys
 import tarfile
 import tempfile
 import threading
-from typing import IO, Self, Any
+from typing import IO, Self, Any, TYPE_CHECKING
 
 import aiofiles
 import aioshutil
@@ -35,6 +36,64 @@ import yaml
 
 from .exc import CliWarning, ConfigWarning, ConfigError
 from .types import BaseConfig
+
+if TYPE_CHECKING:
+    import multiprocessing
+
+
+def configure_worker_logging(queue: "multiprocessing.Queue", level: int) -> None:
+    """
+    Configures the logger for a worker process to send logs to a queue.
+
+    This function removes all existing handlers from the root logger, adds a
+    QueueHandler to send all log records to the provided multiprocessing queue,
+    and sets the logger's level to ensure all messages are captured.
+
+    Args:
+        queue: The multiprocessing.Queue to which log records will be sent.
+        level: The logging level to set for the root logger.
+    """
+    root = logging.getLogger()
+    # Remove all existing handlers to prevent duplicate logging or writing to stderr
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+
+    # Add the queue handler
+    handler = logging.handlers.QueueHandler(queue)
+    root.addHandler(handler)
+    root.setLevel(level)
+
+
+class LevelBasedStreamHandler(logging.Handler):
+    """A logging handler that directs records to stdout or stderr based on level.
+
+    This handler sends log records with a level of INFO or lower to sys.stdout,
+    and records with a level of WARNING or higher to sys.stderr. This is useful
+    for separating routine informational messages from warnings and errors.
+    """
+
+    def __init__(self, stdout_level_lte: int = logging.INFO,
+                 stderr_level_gte: int = logging.WARNING):
+        super().__init__()
+        self.stdout_level_lte = stdout_level_lte
+        self.stderr_level_gte = stderr_level_gte
+        self.stdout_handler = logging.StreamHandler(sys.stdout)
+        self.stderr_handler = logging.StreamHandler(sys.stderr)
+
+    def emit(self, record: logging.LogRecord):
+        """Emits a record.
+
+        The record is sent to stdout if the level is less than or equal to
+        `self.stdout_level_lte`, and to stderr if the level is greater than or
+        equal to `self.stderr_level_gte`.
+
+        Args:
+            record: The record to be emitted.
+        """
+        if record.levelno <= self.stdout_level_lte:
+            self.stdout_handler.emit(record)
+        elif record.levelno >= self.stderr_level_gte:
+            self.stderr_handler.emit(record)
 
 
 class TemporaryDirectory(tempfile.TemporaryDirectory):

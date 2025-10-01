@@ -15,10 +15,12 @@
 #
 ###############################################################################
 import csv
+import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from dataclasses import dataclass
@@ -39,16 +41,23 @@ def run_cli(sot: str,
             main_args: Sequence[str] = None,
             subcommand_args: Sequence = None,
             print_command: bool = False) -> ExecResult:
-    proc = shutil.which('hydrate')
     main_args = main_args or []
     subcommand_args = subcommand_args or []
     tmpdir = tempfile.TemporaryDirectory()
     temp_args = ['-y', tmpdir.name]
 
-    args = [proc, verbosity_arg, *main_args, 'cluster', *temp_args, *subcommand_args, sot]
+    # Use sys.executable to ensure we're running with the same python interpreter
+    # and run as a module to avoid PATH issues.
+    args = [sys.executable, '-m', 'hydrator', verbosity_arg, *main_args, 'cluster', *temp_args, *subcommand_args, sot]
     if print_command:
         print("\n" + " ".join(args))
-    p = subprocess.run(args, capture_output=True, text=True)
+
+    # Set PYTHONPATH to include the 'src' directory.
+    env = os.environ.copy()
+    project_root = pathlib.Path(__file__).parent.parent
+    env['PYTHONPATH'] = str(project_root / 'src') + os.pathsep + env.get('PYTHONPATH', '')
+
+    p = subprocess.run(args, capture_output=True, text=True, check=False, env=env)
     return ExecResult(proc=p, out=pathlib.Path(tmpdir.name + "/"), temp=tmpdir)
 
 
@@ -328,7 +337,7 @@ class TestDefaultOverlays(TestClusterHydrationPlatformValidCases):
                       r.proc.stderr)
         self.assertIn("US41273CLS01: missing overlay for group 'prod-us'; nothing to hydrate",
                       r.proc.stderr)
-        self.assertIn("Total 4 clusters - 2 rendered successfully, 2 unsuccessful",
+        self.assertIn("2 rendered successfully, 2 unsuccessful",
                       r.proc.stderr)
         r.temp.cleanup()
 

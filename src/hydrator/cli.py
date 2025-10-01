@@ -19,19 +19,128 @@ import asyncio
 import collections
 import csv
 import logging
+import multiprocessing
 import pathlib
 import pprint
 import sys
+# pylint: disable-next=no-name-in-module
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from importlib.metadata import version
-from typing import Generator
+from logging.handlers import QueueListener
+from typing import Type
 
 from .exc import CliError, ConfigWarning, ConfigError
 from .hydration import BaseHydrator, ClusterHydrator, GroupHydrator
 from .oci_registry import OCIClientFactory
-from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig
-from .util import LazyFileType, TemporaryDirectory, \
-    cap_word_to_snake_case, check_config
-from .validator import BaseValidator, Gatekeeper
+from .types import SotConfig, HydrateType, BaseConfig, GroupConfig, ClusterConfig, HydrationResult
+from .util import (
+    LazyFileType, TemporaryDirectory, cap_word_to_snake_case, check_config,
+    configure_worker_logging, LevelBasedStreamHandler
+)
+from .validator import Gatekeeper
+
+
+
+# pylint: disable-next=too-many-arguments,too-many-locals,too-many-branches
+def hydration_worker(
+        cls: Type[BaseHydrator],
+        config: BaseConfig,
+        log_queue: multiprocessing.Queue,
+        log_level: int,
+        temp_path: pathlib.Path,
+        base_path: pathlib.Path,
+        overlay_path: pathlib.Path,
+        default_overlay: str | None,
+        modules_path: pathlib.Path,
+        hydrated_path: pathlib.Path,
+        output_subdir: str,
+        oci_registry: str | None,
+        oci_tags: set[str],
+        gatekeeper_validation: bool,
+        gatekeeper_constraints: list[pathlib.Path],
+        preserve_temp: bool,
+        split_output: bool
+) -> HydrationResult:
+    """
+    Top-level function to be executed by each worker process.
+
+    This function is responsible for the full, end-to-end hydration of a single
+    item (cluster or group). It initializes necessary components like validators
+    and OCI clients, creates and runs a Hydrator instance, and returns a
+    lightweight HydrationResult.
+
+    Args:
+        cls: The hydrator class to instantiate (ClusterHydrator or GroupHydrator).
+        config: The configuration object for the specific item to hydrate.
+        log_queue: The queue to which worker logs will be sent.
+        log_level: The logging level for the worker process.
+        All other arguments correspond to the CLI flags and configuration paths.
+
+    Returns:
+        A HydrationResult object summarizing the outcome of the task.
+    """
+    # The first step in the worker is to configure its logging.
+    configure_worker_logging(log_queue, log_level)
+
+    # Each worker process must configure its own validators and clients.
+    validators = []
+    if gatekeeper_validation:
+        try:
+            validators.append(
+                Gatekeeper.configure(constraint_paths=gatekeeper_constraints))
+        except ValueError as e:
+            return HydrationResult(name=config.name, success=False,
+                                   errors=[f"validator_setup_error: {e}"])
+
+    oci_client = None
+    if oci_registry:
+        oci_client = OCIClientFactory.create_client(registry_url=oci_registry)
+
+    hydrator = cls(
+        config=config,
+        temp=TemporaryDirectory(
+            prefix=f"{config.name}_",
+            dir=temp_path,
+            delete=not preserve_temp),
+        base_path=base_path,
+        overlay_path=overlay_path,
+        default_overlay=default_overlay,
+        modules_path=modules_path,
+        hydrated_path=hydrated_path,
+        output_subdir=output_subdir,
+        oci_client=oci_client,
+        oci_tags=oci_tags,
+        validators=validators,
+        preserve_temp=preserve_temp,
+        split_output=split_output,
+    )
+
+    # Each worker runs its own asyncio event loop for the hydration task.
+    try:
+        # The hydrator's run method is async, so we wrap it here.
+        asyncio.run(hydrator.run())
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return HydrationResult(name=hydrator.name, success=False, errors=[f"runtime_error: {e}"])
+
+    # Translate the final status of the hydrator into a lightweight result object.
+    errors = []
+    if not hydrator.status:
+        if hydrator.status.jinja_ok is False:
+            errors.append('jinja')
+        if hydrator.status.kustomize_ok is False:
+            errors.append('kustomize')
+        if hydrator.status.split_ok is False:
+            errors.append('split output')
+        if hydrator.status.publish_ok is False:
+            errors.append('OCI publish')
+        if not hydrator.status.validators_ok:
+            for v in hydrator.validated:
+                if v.valid is False:
+                    errors.append(cap_word_to_snake_case(v.__class__.__name__))
+        if not hydrator.status.hydrator_ok:
+            errors.append('hydrator checks')
+
+    return HydrationResult(name=hydrator.name, success=bool(hydrator.status), errors=errors)
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,8 +171,8 @@ def parse_args() -> argparse.Namespace:
         '--workers',
         type=int,
         default=0,
-        help='When set uses async workers to hydrate resources; defaults to sync hydration. '
-             'Recommend starting at 25'
+        help='Overrides the number of worker processes to use for hydration. '
+             'The default (0) sets this value equal to the number of CPUs on the machine.'
     )
     root_parser.add_argument('--version', action='version', version=version('hydrator'))
 
@@ -267,8 +376,8 @@ class BaseCli:
     _groups: set[str]
     _names: set[str]
     _tags: set[str]
-    _validators: list[BaseValidator]
-    hydrators: list[BaseHydrator]
+    results: list[HydrationResult]
+    _tasks_submitted: int
 
     # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
@@ -309,37 +418,6 @@ class BaseCli:
         self._preserve_temp = preserve_temp
         self._split_output = split_output
         self._workers = workers
-        self._setup_validators()
-        self._setup_oci_client()
-
-    def _setup_validators(self):
-        """Perform setup for validators
-
-        Returns:
-            sequence of validators to run
-        """
-        validators = []
-        if self._gatekeeper_validation:
-            try:
-                validators.append(
-                    Gatekeeper.configure(constraint_paths=self._gatekeeper_constraints))
-            except ValueError as e:
-                raise CliError(f'Error while setting up validators: {e}') from e
-
-        self._validators = validators
-
-    def _setup_oci_client(self):
-        """Create OCI client if required
-
-        Returns:
-            client to interact with configured OCI registry
-        """
-        client = None
-        if self._oci_registry:
-            client = OCIClientFactory.create_client(
-                registry_url=self._oci_registry)
-
-        self._oci_client = client
 
     def report(self) -> dict[str, list[str]]:
         """Creates a pretty-printable summary of total hydration state
@@ -349,14 +427,13 @@ class BaseCli:
         """
         failures = self._gather_failures()
         if failures:
-            total = len(self.hydrators)
-            unsuccessful = len(failures.keys())
-            successful = total - unsuccessful
-            print(f'\nTotal {total} {self._hyd_type.value}s - {successful} rendered '
-                  f'successfully, {unsuccessful} unsuccessful\n',
-                  file=sys.stderr)
+            unsuccessful = len(failures)
+            successful = self._tasks_submitted - unsuccessful
+            print(f'\nTotal {self._tasks_submitted} '
+                  f'{self._hyd_type.value}s - {successful} rendered '
+                  f'successfully, {unsuccessful} unsuccessful\n', file=sys.stderr)
         else:
-            print(f'{len(self.hydrators)} {self._hyd_type.value}s total, all rendered '
+            print(f'{self._tasks_submitted} {self._hyd_type.value}s total, all rendered '
                   f'successfully')
 
         if failures:
@@ -374,27 +451,9 @@ class BaseCli:
             dict in form of `{item: [errors]}`
         """
         failures = collections.defaultdict(list)
-        for h in self.hydrators:
-            if not h.status:
-                if h.status.jinja_ok is False:
-                    failures[h.name].append('jinja')
-
-                if h.status.kustomize_ok is False:
-                    failures[h.name].append('kustomize')
-
-                if h.status.split_ok is False:
-                    failures[h.name].append('split output')
-
-                if h.status.publish_ok is False:
-                    failures[h.name].append('OCI publish')
-
-                if not h.status.validators_ok:
-                    for v in h.validated:
-                        if v.valid is False:
-                            failures[h.name].append(cap_word_to_snake_case(v.__class__.__name__))
-
-                if not h.status.hydrator_ok:
-                    failures[h.name].append('hydrator checks')
+        for result in self.results:
+            if not result.success:
+                failures[result.name].extend(result.errors)
         return failures
 
     def _filter_item(self, item: str, item_config: BaseConfig) -> bool:
@@ -429,81 +488,25 @@ class BaseCli:
 
         return False
 
-    def _generate_hydrators(self, cls, config_data) -> Generator:
-        for c, cfg in config_data.items():
-            self._logger.debug(f'Starting hydration setup for {c}')
-            if self._filter_item(c, cfg):
-                continue
+    def _hydrate(self, config_data: SotConfig) -> None:
+        """
+        Manages the parallel hydration of resources using a process pool.
 
-            hydrator = cls(
-                config=cfg,
-                temp=TemporaryDirectory(
-                    prefix=f"{cfg.name}_",
-                    dir=self._temp,
-                    delete=not self._preserve_temp),
-                base_path=self._base_path,
-                overlay_path=self._overlay_path,
-                default_overlay=self._default_overlay,
-                modules_path=self._modules_path,
-                hydrated_path=self._hydrated_path,
-                output_subdir=self._output_subdir,
-                oci_client=self._oci_client,
-                oci_tags=self._oci_tags,
-                validators=self._validators,
-                preserve_temp=self._preserve_temp,
-                split_output=self._split_output,
-            )
-            self.hydrators.append(hydrator)
-            yield hydrator
+        This method determines the correct Hydrator class, then iterates through
+        the source-of-truth data, submitting a task to the ProcessPoolExecutor
+        for each item that is not filtered out. It then collects the results
+        as they are completed.
 
-    async def _enqueue_hydrators(self, hydrators, queue):
-        for hydrator in hydrators:
-            await queue.put(hydrator)
-        self._logger.debug('Work generator finished enqueuing items')
-
-    async def _hydration_worker(self, worker: int, queue: asyncio.Queue):
-        self._logger.debug(f'Worker {worker} starting')
-        while True:
-            try:
-                hydrator: BaseHydrator = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                self._logger.debug(f'Worker {worker}: queue is empty; exiting.')
-                return
-
-            try:
-                async with hydrator:
-                    self._logger.info(f'Hydrating {hydrator.name}')
-                    await hydrator.run()
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                self._logger.exception(
-                    f'Worker {worker} caught generic exception on hydrator {hydrator.name}',
-                    exc_info=e)
-                queue.task_done()
-
-    async def _hydrate_async(self, cls, config_data):
-        tasks = []
-        queue = asyncio.Queue(self._workers * 2 if self._workers else 50)
-        gen = self._generate_hydrators(cls, config_data)
-        tasks.append(asyncio.create_task(self._enqueue_hydrators(gen, queue)))
-
-        for i in range(1, self._workers + 1):
-            task = asyncio.create_task(self._hydration_worker(i, queue))
-            tasks.append(task)
-
-        await asyncio.gather(*tasks)
-
-    # pylint: disable-next=too-many-branches
-    async def _hydrate(self, config_data: SotConfig) -> None:
-        """Workflow for hydrating more than one item, such as when a
-        group, tags, or all items are scoped
+        To ensure logs from worker processes are not lost, this method also sets
+        up a multiprocessing-safe logging queue and a `QueueListener`. The
+        listener forwards logs from the workers to the main process's logger in
+        real-time. The listener is stopped automatically when hydration is complete.
 
         Args:
-            config_data: item config as dict
-
-        Returns:
-            integer exit code
+            config_data: A dictionary containing the configuration for all items
+                         to be processed.
         """
-        cls: type[ClusterHydrator] | type[GroupHydrator]
+        cls: Type[BaseHydrator]
         if self._hyd_type is HydrateType.CLUSTER:
             cls = ClusterHydrator
         elif self._hyd_type is HydrateType.GROUP:
@@ -511,15 +514,70 @@ class BaseCli:
         else:
             raise CliError(f'Unknown hydration type {self._hyd_type}')
 
-        # if we have more than zero workers
-        if self._workers > 0:
-            await self._hydrate_async(cls, config_data)
-            return
+        # Set up a queue and a listener for logs from worker processes.
+        log_queue = multiprocessing.Manager().Queue()
+        listener = QueueListener(log_queue, LevelBasedStreamHandler())
+        listener.start()
 
-        # otherwise...
-        for hydrator in self._generate_hydrators(cls, config_data):
-            async with hydrator:
-                await hydrator.run()
+        try:
+            # Use ProcessPoolExecutor to manage a pool of long-lived worker processes.
+            max_workers = self._workers if self._workers > 0 else None
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
+                for c, cfg in config_data.items():
+                    if self._filter_item(c, cfg):
+                        continue
+
+                    self._logger.debug(f'Submitting hydration task for {c}')
+                    future = executor.submit(
+                        hydration_worker,
+                        cls,
+                        cfg,
+                        log_queue,  # type: ignore
+                        self._logger.level,
+                        self._temp,
+                        self._base_path,
+                        self._overlay_path,
+                        self._default_overlay,
+                        self._modules_path,
+                        self._hydrated_path,
+                        self._output_subdir,
+                        self._oci_registry,
+                        self._oci_tags,
+                        self._gatekeeper_validation,
+                        self._gatekeeper_constraints,
+                        self._preserve_temp,
+                        self._split_output,
+                    )
+                    futures[future] = cfg.name
+
+                self._tasks_submitted = len(futures)
+                self._logger.debug(f'Submitted {self._tasks_submitted} tasks to workers.')
+
+                # Process results as they complete to provide responsive feedback.
+                for future in as_completed(futures):
+                    name = futures[future]
+                    try:
+                        result = future.result()
+                        self.results.append(result)
+                        if result.success:
+                            self._logger.info(f'Successfully hydrated {name}')
+                        else:
+                            self._logger.warning(
+                                f'Hydration failed for {name}: {", ".join(result.errors)}')
+                    except Exception as e:  # pylint: disable=broad-exception-caught
+                        self._logger.error(
+                            f"Hydration for {name} generated an exception in the worker: {e}")
+                        self.results.append(
+                            HydrationResult(
+                                name=name,
+                                success=False,
+                                errors=[f"worker_exception: {e}"]
+                            )
+                        )
+        finally:
+            # Stop the logging listener once all tasks are complete.
+            listener.stop()
 
     def _process_sot_file(self) -> SotConfig:
         """Takes a file-like object; returns a dictionary where the key is the
@@ -565,7 +623,7 @@ class BaseCli:
         self._config = data
         return self._config
 
-    async def run(self) -> int:
+    def run(self) -> int:
         """Runs the CLI workflow
 
         Returns:
@@ -577,9 +635,12 @@ class BaseCli:
         except CliError:
             return 1
 
-        self.hydrators = []
+        self.results = []
+        self._tasks_submitted = 0
 
-        await self._hydrate(config_data)
+        # The main hydration logic is now a synchronous, blocking call that
+        # manages the lifecycle of the process pool.
+        self._hydrate(config_data)
 
         failures = self.report()
 

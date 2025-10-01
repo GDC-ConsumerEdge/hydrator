@@ -14,7 +14,6 @@
 # limitations under the License.
 #
 ###############################################################################
-import asyncio
 import pprint
 import sys
 
@@ -101,7 +100,7 @@ def main() -> int:
         logger.error(e)
         return 1
 
-    return asyncio.run(cli.run())
+    return cli.run()
 
 
 if __name__ == '__main__':

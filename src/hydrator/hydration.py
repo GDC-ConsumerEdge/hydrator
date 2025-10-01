@@ -37,7 +37,7 @@ class BaseHydrator(LoggingMixin):
     """ Implements a specific hydration flow """
     _jinja_env: jinja2.Environment
     _hydration_dest: pathlib.Path
-    _oci_client: OCIClient
+    _oci_client: OCIClient | None
     _visited_files: Set[pathlib.Path]
 
     __slots__ = [
@@ -57,9 +57,9 @@ class BaseHydrator(LoggingMixin):
                  modules_path: pathlib.Path,
                  hydrated_path: pathlib.Path,
                  output_subdir: str,
-                 oci_client: OCIClient,
+                 oci_client: OCIClient | None,
                  oci_tags: Set[str],
-                 hydration_type: HydrateType,
+                 hydration_type: HydrateType | None = None,
                  validators: list[BaseValidator] | None = None,
                  preserve_temp: bool = False,
                  split_output: bool = False):
@@ -487,10 +487,11 @@ class BaseHydrator(LoggingMixin):
             self._logger,
         )
 
-        self._oci_client.push(
-            packaged_manifest_path,
-            self.name,
-            self.oci_tags)
+        if self._oci_client:
+            self._oci_client.push(
+                packaged_manifest_path,
+                self.name,
+                self.oci_tags)
 
     async def run(self) -> None:
         """Orchestrates the hydration process flow.

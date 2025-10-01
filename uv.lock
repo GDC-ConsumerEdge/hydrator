@@ -58,7 +58,7 @@ dependencies = [
     { name = "pyyaml" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pylint" },
@@ -71,13 +71,16 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=24.1.0,<25" },
     { name = "aioshutil", specifier = ">=1.5,<2" },
     { name = "jinja2", specifier = ">=3.1.6,<4" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "pylint", marker = "extra == 'dev'", specifier = ">=3.3.1" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
-    { name = "types-aiofiles", marker = "extra == 'dev'", specifier = ">=24.1.0.20240626" },
-    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20240808" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.18.2" },
+    { name = "pylint", specifier = ">=3.3.8" },
+    { name = "types-aiofiles", specifier = ">=24.1.0.20250822" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
 
 [[package]]
 name = "isort"

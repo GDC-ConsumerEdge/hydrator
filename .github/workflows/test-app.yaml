@@ -23,7 +23,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: install dependencies
-        run: uv sync --verbose
+        run: uv sync --all-extras --verbose
       
       - name: pylint
         run: uv run pylint --fail-on=E src/
