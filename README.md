@@ -393,19 +393,15 @@ options:
 
 ## Development
 
-Consider the following which makes use of Python [virtualenvs](https://virtualenv.pypa.io/en/latest/). Python 3.12+
-required.
+This project uses `uv` for dependency management.
 
 ```shell
-cd hydrator
+# Create and activate a virtual environment
+uv venv
+source .venv/bin/activate
 
-python3 -m venv venv
-
-source venv/bin/activate
-
-pip3 install -r requirements.txt --require-hashes
-
-pip3 install -e .[dev]
+# Install the project in editable mode with development dependencies
+uv pip install -e '.[dev]'
 ```
 
 ### Tests
