@@ -8,21 +8,31 @@ name: test app
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
       - name: install dependencies
-        run: pip3 install -r requirements-dev.txt --require-hashes
-      - name: install hydrator
-        run: pip install .[dev]
+        run: uv sync --verbose
+      
       - name: pylint
-        run: pylint --fail-on=E src/
+        run: uv run pylint --fail-on=E src/
+      
       - name: mypy
-        run: mypy src/
+        run: uv run mypy src/
+      
       - name: test hydrator sync
-        run: python3 -m unittest -vv tests/test_cluster_cli.py
+        run: uv run -m unittest -vv tests/test_cluster_cli.py
+      
       - name: test hydrator async
-        run: python3 -m unittest -vv tests/test_cluster_async.py
+        run: uv run -m unittest -vv tests/test_cluster_async.py
