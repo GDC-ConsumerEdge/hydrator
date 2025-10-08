@@ -93,3 +93,13 @@ class HydratorStatus:
 
     def __bool__(self):
         return all(v for k, v in dataclasses.asdict(self).items())
+
+
+@dataclass
+class HydrationResult:
+    """ Represents the final result of a single hydration task. This lightweight object is
+    returned from a worker process to the main process for final reporting.
+    """
+    name: str
+    success: bool
+    errors: list[str] = dataclasses.field(default_factory=list)

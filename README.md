@@ -3,24 +3,25 @@
 ## Table of Contents
 
 - [Architecture](#architecture)
-  - [Source of Truth](#source-of-truth)
-  - [Bases and Overlays](#bases-and-overlays)
-  - [Jinja](#jinja)
-  - [Kustomize](#kustomize)
-  - [Oras](#oras)
-  - [Gatekeeper](#gatekeeper)
+    - [Source of Truth](#source-of-truth)
+    - [Bases and Overlays](#bases-and-overlays)
+    - [Jinja](#jinja)
+    - [Kustomize](#kustomize)
+    - [Oras](#oras)
+    - [Gatekeeper](#gatekeeper)
 - [Tips](#tips)
-  - [Increase Rendering Speed with Concurrency](#increase-rendering-speed-with-concurrency)
-  - [Filtering](#filtering)
-  - [Output verbosity/suppression](#output-verbositysuppression)
-  - [Hydration summary](#hydration-summary)
-  - [Exit Codes](#exit-codes)
+    - [Increase Rendering Speed with More CPUs](#increase-rendering-speed-with-more-cpus)
+    - [The --split-output Flag](#the---split-output-flag)
+    - [Filtering](#filtering)
+    - [Output verbosity/suppression](#output-verbositysuppression)
+    - [Hydration summary](#hydration-summary)
+    - [Exit Codes](#exit-codes)
 - [Internal App Logical Workflow](#internal-app-logical-workflow)
 - [Suggested User Workflow](#suggested-user-workflow)
 - [Help](#help)
 - [Development](#development)
-  - [Tests](#tests)
-  - [Building Docker Container](#building-docker-container)
+    - [Tests](#tests)
+    - [Building Docker Container](#building-docker-container)
 
 Hydrator is an opinionated Kubernetes resource hydration CLI and workflow for hydrating cluster-and-group specific
 manifests. Its intended use case is the hydration of Kustomize-enabled packages of resources at a large scale (
@@ -38,10 +39,11 @@ The app assumes the following:
 
 #### External Requirements
 
-*   **Jinja2**: Used for templating resource files.
-*   **Kustomize**: Essential for managing and customizing Kubernetes configurations.
-*   **Gatekeeper/OPA/Gator**: For policy enforcement and validation of hydrated manifests. Gator is the specific CLI tool used.
-*   **Oras**: To publish hydrated manifests to an OCI registry (optional).
+* **Jinja2**: Used for templating resource files.
+* **Kustomize**: Essential for managing and customizing Kubernetes configurations.
+* **Gatekeeper/OPA/Gator**: For policy enforcement and validation of hydrated manifests. Gator is the specific CLI tool
+  used.
+* **Oras**: To publish hydrated manifests to an OCI registry (optional).
 
 ## Architecture
 
@@ -54,22 +56,24 @@ differ based on the repository in which it is used, as this file may contain arb
 vales to be used in template rendering. However, at a minimum, the following tables show columns that are required by
 this tool for _all repositories_ in which it is used.
 
-> _**Note:** Hydrator performs minimal source of truth data validation, requiring only that the below values exist. Validation of source of truth files is out of the scope of the hydrator tool and is deferred to the `csv-validator` tool instead._
+> _**Note:** Hydrator performs minimal source of truth data validation, requiring only that the below values exist.
+Validation of source of truth files is out of the scope of the hydrator tool and is deferred to the `csv-validator` tool
+instead._
 
 #### Cluster Hydration SoT Required Values
 
-| column        | purpose                                                                                                                          |
-|---------------|----------------------------------------------------------------------------------------------------------------------------------|
-| cluster_name  | globally-unique name of cluster                                                                                                  |
+| column        | purpose                                                                                                                           |
+|---------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| cluster_name  | globally-unique name of cluster                                                                                                   |
 | cluster_group | Arbitrary grouping to which a cluster belongs. This field links a cluster to an overlay, enabling shared resource configurations. |
-| cluster_tags  | Tags associated with a cluster, primarily used for filtering which clusters to hydrate.                                          |
+| cluster_tags  | Tags associated with a cluster, primarily used for filtering which clusters to hydrate.                                           |
 
 #### Package Hydration SoT Required Values
 
-| column | purpose                                                                                                                            |
-|--------|------------------------------------------------------------------------------------------------------------------------------------|
+| column | purpose                                                                                                                             |
+|--------|-------------------------------------------------------------------------------------------------------------------------------------|
 | group  | Arbitrary grouping used during package hydration. Functionally similar to `cluster_group`, it enables sharing of resource packages. |
-| tags   | Tags used for filtering purposes during package hydration. Functionally similar to `cluster_tags`.                                   |
+| tags   | Tags used for filtering purposes during package hydration. Functionally similar to `cluster_tags`.                                  |
 
 ### Bases and Overlays
 
@@ -77,7 +81,8 @@ this tool for _all repositories_ in which it is used.
 
 The base library (`base_library/`) contains Kustomize packages of resources. Each package is expected to contain a
 `kustomization.yaml` ([docs](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/)). No naming
-convention is specified, required, or enforced for package names or their directory structure; these are completely arbitrary and up to the user and their use case.
+convention is specified, required, or enforced for package names or their directory structure; these are completely
+arbitrary and up to the user and their use case.
 There is no intention of supporting environment-specific bases here: each base is
 meant to be environment-agnostic, though there is nothing precluding this from being the pattern.
 
@@ -85,28 +90,38 @@ A good starting point is using meaningful names related to the use case. Is the 
 North America? Use `base_library/rbac-northam`. Package of a single application's container and service resources - for
 example, a payments processing service called _payments_: `base_library/payments-app`.
 
-The overlays directory (`overlays/`) contains group or single cluster configuration overlays. Each subdirectory within `overlays/` is
+The overlays directory (`overlays/`) contains group or single cluster configuration overlays. Each subdirectory within
+`overlays/` is
 a _kustomization_ that represents a specific, opinionated configuration of base library packages.
-A key aspect of this structure is the mapping of a cluster's `cluster_group` (defined in the [Source of Truth](#source-of-truth)) to its corresponding parent overlay directory within `overlays/`. For example, if a cluster has `cluster_group: prod-us-east`, its configuration will be sourced from the `overlays/prod-us-east/` kustomization.
+A key aspect of this structure is the mapping of a cluster's `cluster_group` (defined in
+the [Source of Truth](#source-of-truth)) to its corresponding parent overlay directory within `overlays/`. For example,
+if a cluster has `cluster_group: prod-us-east`, its configuration will be sourced from the `overlays/prod-us-east/`
+kustomization.
 
 An overlay may refer to a cluster, a group of clusters, or a specific environment. For example, the resources
-for a group of lab clusters in North America may be encapsulated in an overlay package named `overlays/nonprod-lab-northam`.
+for a group of lab clusters in North America may be encapsulated in an overlay package named
+`overlays/nonprod-lab-northam`.
 
 The purpose of overlays is to group clusters together with the intent of configuring them in a _like_ way. This does not
 mean that clusters in the same group cannot have cluster-specific values. In fact, any cluster may use a
 cluster-specific value. Rather, grouping clusters with an overlay enables them to use the _exact same_
-`kustomization.yaml` (within their respective overlay directory), and therefore receive the same resources, transformations, generations, common annotations, common
+`kustomization.yaml` (within their respective overlay directory), and therefore receive the same resources,
+transformations, generations, common annotations, common
 labels, and many other [features enabled](https://github.com/kubernetes-sigs/kustomize/tree/master/examples) by
 Kustomize.
 
 #### Use
 
-* For each group of clusters which should share configuration, create a corresponding overlay directory (e.g., `overlays/<cluster_group_name>/`).
+* For each group of clusters which should share configuration, create a corresponding overlay directory (e.g.,
+  `overlays/<cluster_group_name>/`).
 * Overlays refer to base library packages, effectively creating a collection of packages tailored for that group.
 
 ### Jinja
 
-In Hydrator, Jinja serves as a powerful templating engine allowing for dynamic customization of Kubernetes manifest files. It enables you to inject values from the [Source of Truth](#source-of-truth) directly into your Kubernetes resource definitions or other files within your resource packages. Jinja is an optional templating feature provided by hydrator. Template designer docs for Jinja may be
+In Hydrator, Jinja serves as a powerful templating engine allowing for dynamic customization of Kubernetes manifest
+files. It enables you to inject values from the [Source of Truth](#source-of-truth) directly into your Kubernetes
+resource definitions or other files within your resource packages. Jinja is an optional templating feature provided by
+hydrator. Template designer docs for Jinja may be
 found [here](https://jinja.palletsprojects.com/en/3.1.x/templates/).
 
 Jinja is how one injects values from the [Source of Truth](#source-of-truth) into a file, regardless of its type.
@@ -215,7 +230,12 @@ validation-gatekeeper
         └── ubuntu-max-mem.yaml
 ```
 
-In the above example, once the validation module sees a `prod-us` folder, its contents are automatically included for clusters belonging to the `prod-us` group. The presence of an `all/` directory is significant: constraints within `all/` are applied globally to all clusters. Then, for clusters specifically in the `prod-us` group, the constraints from the `prod-us/` folder are applied *in addition* to those from `all/`. Any other group-specific folders (e.g., `dev-eu/`) or other folders at the same level that do not match the current cluster's group would be excluded from its validation process.
+In the above example, once the validation module sees a `prod-us` folder, its contents are automatically included for
+clusters belonging to the `prod-us` group. The presence of an `all/` directory is significant: constraints within `all/`
+are applied globally to all clusters. Then, for clusters specifically in the `prod-us` group, the constraints from the
+`prod-us/` folder are applied *in addition* to those from `all/`. Any other group-specific folders (e.g., `dev-eu/`) or
+other folders at the same level that do not match the current cluster's group would be excluded from its validation
+process.
 
 #### How it Works
 
@@ -230,10 +250,13 @@ summary on a per-cluster basis after hydration completes.
 >
 > Due to the limitations of `gator`, you must provide some boilerplate to your constraints when testing locally.
 >
-> Gator will evaluate its templates on ALL the resources it loads—including _its own_ constraint templates. This behavior can introduce noise and make it difficult to focus on policy violations relevant to your rendered manifests, as you generally do *not* want to validate Gatekeeper against itself.
+> Gator will evaluate its templates on ALL the resources it loads—including _its own_ constraint templates. This
+> behavior can introduce noise and make it difficult to focus on policy violations relevant to your rendered manifests, as
+> you generally do *not* want to validate Gatekeeper against itself.
 >
-> To mitigate this, every constraint you write *must* include a `namespace`. By convention, this documentation and internal tests use `gator-local`.
-For example:
+> To mitigate this, every constraint you write *must* include a `namespace`. By convention, this documentation and
+> internal tests use `gator-local`.
+> For example:
 
 ```yaml
 apiVersion: templates.gatekeeper.sh/v1
@@ -264,20 +287,62 @@ constraints against themselves.
 
 ## Tips
 
-### Increase Rendering Speed with Concurrency
+### Increase Rendering Speed with More CPUs
 
-Hydrator has added support for asynchronous hydration of cluster and package manifests using event-based concurrency. It
-is disabled by default. To use, pass the `--workers` flag during invocation. For example:
+Hydrator is designed for high-performance, parallel execution of **CPU-bound** hydration tasks. Its performance is
+directly proportional to the number of available CPU cores; the tool cannot render faster without more processing power.
+For any production-scale workload involving hundreds of clusters or more, a minimum of **8 vCPUs** is strongly
+recommended.
+
+Performance scales linearly with the number of available CPUs. For example, if it takes 5 minutes to hydrate 2,000
+clusters with 16 CPUs, you can expect it to take approximately 2.5 minutes with 32 CPUs. This linear scaling continues
+to a high, but not unlimited, ceiling.
+
+By default, Hydrator spawns one worker process per available CPU core. This is the recommended setting for production
+use. For experimentation, you can increase this ratio up to two workers per vCPU, but this may not always yield better
+performance.
+
+#### Experimentation Example
+
+On a 16-core system, you might experiment with doubling the number of workers to see if it improves throughput for your
+specific workload.
 
 ```shell
-hydrate -v --workers=32 cluster sot.csv --gatekeeper-validation --split-output
+hydrate -v --workers=32 cluster --gatekeeper-validation --split-output source_of_truth.csv
 ```
 
-The recommended number of workers to use is 2 for every CPU core available. If you are still not seeing the performance
-improvements you would like, we recommend allocating more CPUs to hydrator and to increase the number of workers
-accordingly.  For example, if you have allocated 16 (v)CPUS, use 32 workers.
+- `-v`: Enables verbose output to show detailed progress.
+- `--workers=32`: Overrides the default and sets the number of worker processes to 32.
+- `cluster`: Specifies the subcommand for hydrating cluster resources.
+- `--gatekeeper-validation`: Enables Gatekeeper policy validation on the hydrated manifests.
+- `--split-output`: Splits the final rendered YAML into individual files based on resource kind and name.
+- `source_of_truth.csv`: The path to the input CSV file.
 
-> **Note:** Increasing the number of concurrent workers can dramatically reduce the usefulness of hydrator output, as the logs from concurrent tasks will be interleaved in the console. If you are troubleshooting a local developer workflow, it is suggested to disable hydration concurrency by omitting the `--workers` flag to ensure clear, sequential output.
+#### Production Example
+
+For production workloads, it is best to rely on the default setting of one worker per CPU core. The `--workers` flag
+should be omitted to allow the tool to use its optimal default.
+
+```shell
+hydrate -v cluster --gatekeeper-validation --split-output source_of_truth.csv
+```
+
+This command performs the same actions as the one above but lets Hydrator determine the ideal number of workers based on
+the system's hardware.
+
+> **Note:** When multiple workers are active, their log outputs will be interleaved in the console. For troubleshooting
+> a specific hydration, it is recommended to limit the run to a single worker (`--workers=1`) to ensure clear, sequential
+> output.
+
+### The --split-output Flag
+
+The `--split-output` flag is a CPU-intensive operation due to the heavy YAML serialization and deserialization it
+performs. While the YAML parsing process has been highly optimized for speed, disabling this flag can dramatically
+improve performance. The trade-off is that you will get a single, large YAML file for each cluster's output instead of
+individually split-out resource files. If you do not require split manifests, omitting this flag is the single most
+effective way to decrease rendering time. If you wish to maintain high performance while using `--split-output`, you can
+offset this performance penalty by adding more CPUs as described in
+the [Increase Rendering Speed with More CPUs](#increase-rendering-speed-with-more-cpus) section.
 
 ### Filtering
 
@@ -333,23 +398,43 @@ validate. All successful runs exit `0`.
 
 The Hydrator CLI follows these steps to process your manifests:
 
-1.  **Initialization**: The CLI is started with paths to the base library, overlays directory, and the source of truth CSV file.
-2.  **Source of Truth Processing**: The CLI reads the source of truth CSV, processing one cluster (i.e., one row) at a time.
-    1.  Each row contains a `cluster_group` field. This field's value directly corresponds to an overlay directory name within the `overlays/` directory (e.g., a `cluster_group` of `prod-us` means Hydrator will look for `overlays/prod-us/`).
-    2.  This mapping tells the tool which overlay configuration to use for the current cluster.
-3.  **Temporary Workspace**: For each cluster, a temporary working directory is created to isolate processing steps.
-4.  **Jinja Configuration**: The cluster's configuration data (from its row in the source of truth CSV) is made available to the Jinja templating engine. This allows values from the CSV (like `cluster_name`, `cluster_group`, or any custom columns) to be used within Jinja templates (files ending in `.j2`).
-5.  **File Collection**: Hydrator reads the contents of the cluster's specific overlay directory (e.g., `overlays/prod-us/`) and the entire `base_library/`. It keeps track of original file information, like source paths, and correctly handles relative and symbolic links.
-6.  **Jinja Template Rendering**: Files ending with the `.j2` extension are identified as Jinja templates and are then rendered (i.e., processed by the Jinja engine using the data from step 4).
-7.  **Writing to Temporary Directory**: The processed files are written to the cluster's temporary working directory.
-    1.  For Jinja templates, the rendered output is saved with the original filename but without the `.j2` extension (e.g., `configmap.yaml.j2` becomes `configmap.yaml`). Other files are copied as-is.
-8.  **Kustomize Build**: `kustomize build` is then run by Hydrator within the cluster's overlay directory (which now contains the Jinja-rendered files and other resources).
-    1.  Hydrator executes this as a standard command ([subprocess](https://docs.python.org/3.12/library/asyncio-subprocess.html)).
-    2.  Kustomize is directed to output the final, fully-hydrated Kubernetes resources (often a single YAML file or stream) to a designated location.
-9.  **Output Organization**: Based on the output arguments provided to Hydrator, the fully-rendered Kubernetes resources from Kustomize are moved to a deterministic final output location:
-    1.  The output structure can be `none` (e.g., `<output_dir>/<CLUSTER_NAME>.yaml`), `group` (e.g., `<output_dir>/<GROUP_NAME>/<CLUSTER_NAME>.yaml`), or `cluster` (e.g., `<output_dir>/<CLUSTER_NAME>/<CLUSTER_NAME>.yaml`).
-10. **Splitting Output (Optional)**: If the `--split-output` flag is used, the resulting Kubernetes resources (from Kustomize) are parsed and split into individual manifest files. These files are organized based on resource type, name, and namespace within the cluster's output directory.
-11. **Gatekeeper Validation (Optional)**: If the `--gatekeeper-validation` flag is provided, Hydrator runs `gator test` to validate the hydrated manifests against the specified Gatekeeper constraints.
+1. **Initialization**: The CLI is started with paths to the base library, overlays directory, and the source of truth
+   CSV file.
+2. **Task Distribution**: The CLI reads the source of truth CSV and places the configuration for each cluster (i.e.,
+   each row) onto a task queue. Worker processes then consume these tasks and execute the hydration workflow in
+   parallel.
+    1. Each task's configuration contains a `cluster_group` field. This field's value directly corresponds to an overlay
+       directory name within the `overlays/` directory (e.g., a `cluster_group` of `prod-us` means Hydrator will look
+       for `overlays/prod-us/`).
+    2. This mapping tells the worker which overlay configuration to use for the current cluster.
+3. **Temporary Workspace**: For each cluster, a temporary working directory is created to isolate processing steps.
+4. **Jinja Configuration**: The cluster's configuration data (from its row in the source of truth CSV) is made available
+   to the Jinja templating engine. This allows values from the CSV (like `cluster_name`, `cluster_group`, or any custom
+   columns) to be used within Jinja templates (files ending in `.j2`).
+5. **File Collection**: Hydrator reads the contents of the cluster's specific overlay directory (e.g.,
+   `overlays/prod-us/`) and the entire `base_library/`. It keeps track of original file information, like source paths,
+   and correctly handles relative and symbolic links.
+6. **Jinja Template Rendering**: Files ending with the `.j2` extension are identified as Jinja templates and are then
+   rendered (i.e., processed by the Jinja engine using the data from step 4).
+7. **Writing to Temporary Directory**: The processed files are written to the cluster's temporary working directory.
+    1. For Jinja templates, the rendered output is saved with the original filename but without the `.j2` extension (
+       e.g., `configmap.yaml.j2` becomes `configmap.yaml`). Other files are copied as-is.
+8. **Kustomize Build**: `kustomize build` is then run by Hydrator within the cluster's overlay directory (which now
+   contains the Jinja-rendered files and other resources).
+    1. Hydrator executes this as a standard
+       command ([subprocess](https://docs.python.org/3.12/library/asyncio-subprocess.html)).
+    2. Kustomize is directed to output the final, fully-hydrated Kubernetes resources (often a single YAML file or
+       stream) to a designated location.
+9. **Output Organization**: Based on the output arguments provided to Hydrator, the fully-rendered Kubernetes resources
+   from Kustomize are moved to a deterministic final output location:
+    1. The output structure can be `none` (e.g., `<output_dir>/<CLUSTER_NAME>.yaml`), `group` (e.g.,
+       `<output_dir>/<GROUP_NAME>/<CLUSTER_NAME>.yaml`), or `cluster` (e.g.,
+       `<output_dir>/<CLUSTER_NAME>/<CLUSTER_NAME>.yaml`).
+10. **Splitting Output (Optional)**: If the `--split-output` flag is used, the resulting Kubernetes resources (from
+    Kustomize) are parsed and split into individual manifest files. These files are organized based on resource type,
+    name, and namespace within the cluster's output directory.
+11. **Gatekeeper Validation (Optional)**: If the `--gatekeeper-validation` flag is provided, Hydrator runs `gator test`
+    to validate the hydrated manifests against the specified Gatekeeper constraints.
 
 ## Suggested User Workflow
 
@@ -370,42 +455,155 @@ Using a pipeline:
 
 `hydration` is self-documented. Use the `--help` flag to see currently available options.
 
-Note that functionality is split across subcommands:
+Note that functionality is split across subcommands.
 
-* `hydrate package --help`
-* `hydrate cluster --help`
+### `hydrate --help`
 
 ```
-$ hydrate --help
-usage: hydrate [-h] [-v | -q] [--workers WORKERS] {cluster,package} ...
+usage: hydrator [-h] [-v | -q] [--workers WORKERS] [--version]
+                {cluster,group} ...
 
 positional arguments:
-  {cluster,package}
+  {cluster,group}
     cluster          hydrate cluster-specific resources
-    package          hydrate resources for a package
+    group            hydrate group-specific resources
 
 options:
   -h, --help         show this help message and exit
   -v, --verbose      increase output verbosity; -vv for max verbosity
   -q, --quiet        output errors only
-  --workers WORKERS
+  --workers WORKERS  Overrides the number of worker processes to use for
+                     hydration. The default (0) sets this value equal to the
+                     number of CPUs on the machine.
+  --version          show program's version number and exit
+```
+
+### `hydrate cluster --help`
+
+```
+usage: hydrator cluster [-h] [-m MODULES_DIR] [-b BASE_DIR] [-o OVERLAY_DIR]
+                        [-O DEFAULT_OVERLAY] [-y HYDRATED_OUTPUT_DIR]
+                        [--oci-registry OCI_REGISTRY] [--oci-tags OCI_TAGS]
+                        [--gatekeeper-validation]
+                        [--gatekeeper-constraints GATEKEEPER_CONSTRAINTS]
+                        [-t TEMP_DIR] [--preserve-temp]
+                        [-s {group,cluster,none} | --split-output]
+                        [--cluster-name CLUSTER_NAME | --cluster-tag CLUSTER_TAG | --cluster-group CLUSTER_GROUP]
+                        source_of_truth_file.csv
+
+hydrate cluster-specific resources
+
+positional arguments:
+  source_of_truth_file.csv
+                        file to read as source of truth
+
+options:
+  -h, --help            show this help message and exit
+  -m MODULES_DIR, --modules MODULES_DIR
+                        path to modules; default: ./modules/
+  -b BASE_DIR, --base BASE_DIR
+                        path to base templates; default: base_library/
+  -o OVERLAY_DIR, --overlay OVERLAY_DIR
+                        path to overlays; default: overlays/
+  -O DEFAULT_OVERLAY, --default-overlay DEFAULT_OVERLAY
+                        default overlay to use when one cannot be found
+  -y HYDRATED_OUTPUT_DIR, --hydrated HYDRATED_OUTPUT_DIR
+                        path to render kustomize templates; default:
+                        $PWD/output
+  --oci-registry OCI_REGISTRY
+                        target registry to upload OCI artifacts
+  --oci-tags OCI_TAGS   Comma-separated list of tags to apply to OCI uploads
+  --gatekeeper-validation
+                        whether to use Gatekeeper validation
+  --gatekeeper-constraints GATEKEEPER_CONSTRAINTS
+                        path(s) to Gatekeeper constraints; may be use more
+                        than once; defaults: validation-
+                        gatekeeper/constraints, validation-
+                        gatekeeper/template-library
+  -t TEMP_DIR, --temp TEMP_DIR
+                        path to temporary workdir; default: uses system temp
+  --preserve-temp       whether to preserve temporary workdir; default: false
+  -s {group,cluster,none}, --output-subdir {group,cluster,none}
+                        type of output subdirectory to create; default: group
+  --split-output        whether to split the generated manifest into multiple
+                        files; default: false
+  --cluster-name CLUSTER_NAME
+                        name of cluster to select from config; may be used
+                        more than once
+  --cluster-tag CLUSTER_TAG
+                        tag to use to select clusters from config; may be used
+                        more than once
+  --cluster-group CLUSTER_GROUP
+                        name of cluster group to select from config; may be
+                        used more than once
+```
+
+### `hydrate group --help`
+
+```
+usage: hydrator group [-h] [-m MODULES_DIR] [-b BASE_DIR] [-o OVERLAY_DIR]
+                      [-O DEFAULT_OVERLAY] [-y HYDRATED_OUTPUT_DIR]
+                      [--oci-registry OCI_REGISTRY] [--oci-tags OCI_TAGS]
+                      [--gatekeeper-validation]
+                      [--gatekeeper-constraints GATEKEEPER_CONSTRAINTS]
+                      [-t TEMP_DIR] [--preserve-temp] [--split-output]
+                      [--group GROUP | --tag TAG]
+                      source_of_truth_file.csv
+
+hydrate group-specific resources
+
+positional arguments:
+  source_of_truth_file.csv
+                        file to read as source of truth
+
+options:
+  -h, --help            show this help message and exit
+  -m MODULES_DIR, --modules MODULES_DIR
+                        path to modules; default: ./modules/
+  -b BASE_DIR, --base BASE_DIR
+                        path to base templates; default: base_library/
+  -o OVERLAY_DIR, --overlay OVERLAY_DIR
+                        path to overlays; default: overlays/
+  -O DEFAULT_OVERLAY, --default-overlay DEFAULT_OVERLAY
+                        default overlay to use when one cannot be found
+  -y HYDRATED_OUTPUT_DIR, --hydrated HYDRATED_OUTPUT_DIR
+                        path to render kustomize templates; default:
+                        $PWD/output
+  --oci-registry OCI_REGISTRY
+                        target registry to upload OCI artifacts
+  --oci-tags OCI_TAGS   Comma-separated list of tags to apply to OCI uploads
+  --gatekeeper-validation
+                        whether to use Gatekeeper validation
+  --gatekeeper-constraints GATEKEEPER_CONSTRAINTS
+                        path(s) to Gatekeeper constraints; may be use more
+                        than once; defaults: validation-
+                        gatekeeper/constraints, validation-
+                        gatekeeper/template-library
+  -t TEMP_DIR, --temp TEMP_DIR
+                        path to temporary workdir; default: uses system temp
+  --preserve-temp       whether to preserve temporary workdir; default: false
+  --split-output        whether to split the generated manifest into multiple
+                        files; default: false
+  --group GROUP         name of group to select from config; may be used more
+                        than once
+  --tag TAG             tag to use to select groups from config; may be used
+                        more than once
 ```
 
 ## Development
 
-Consider the following which makes use of Python [virtualenvs](https://virtualenv.pypa.io/en/latest/). Python 3.12+
-required.
+This project uses `uv` for dependency management.
 
 ```shell
-cd hydrator
+# Create and activate a virtual environment
+uv venv
+source .venv/bin/activate
 
-python3 -m venv venv
+# Sync dev dependencies
+uv sync
 
-source venv/bin/activate
-
-pip3 install -r requirements.txt --require-hashes
-
-pip3 install -e .[dev]
+# Install the project in editable mode
+uv pip install -e .
 ```
 
 ### Tests
@@ -419,7 +617,7 @@ pylint src
 mypy src
 ```
 
-#### Integration Tests
+#### Running Tests
 
 After installing the dev dependencies, you can run the integration test suite:
 
@@ -427,16 +625,12 @@ After installing the dev dependencies, you can run the integration test suite:
 python3 -m unittest tests/*.py -vv
 ```
 
-##### Async Testing and Performance
+##### Performance Testing
 
-A set of async tests has been committed to `test/test_cluster_async.py` using test assets committed to
-`tests/assets/platform_valid_async`. This directory contains a source of truth with 50 clusters. There is single test
-case (`test_standard_args_sync_baseline`) which acts as a baseline to compare against asyncronous tests. As of the time
-of this writing, asyncronous hydration using asyncio completes approximately 85% faster at ~4s compared to ~30s.
-
-There is an additional set of tests assets at `tests/assets/platform_valid_async_perf_testing` which contain ~1000
-clusters for evaluation and test of performance enhancements/improvements. Hydration of these resources completes in
-approximately ~149s.
+The test suite includes assets for performance evaluation. The `tests/assets/platform_valid_async` directory contains a
+representative dataset, while `tests/assets/platform_valid_async_perf_testing` contains a much larger dataset of
+approximately 1000 clusters designed for stress testing and validating performance enhancements. These assets are used
+to ensure the process-based concurrency model effectively utilizes system resources and minimizes execution time.
 
 ### Building Docker Container
 

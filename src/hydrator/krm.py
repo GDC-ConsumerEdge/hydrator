@@ -23,7 +23,7 @@ from typing import Any
 import yaml
 
 from .exc import CliWarning
-from .util import SingletonMixin, is_valid_object, sha256_digest, LoggingMixin, sync_load_all_yaml
+from .util import is_valid_object, sha256_digest, LoggingMixin, sync_load_all_yaml
 
 type KrmObjectKey = str
 type YamlDoc = dict[str, Any]
@@ -65,17 +65,15 @@ def krm_add_annotation(obj: dict, *, key: str, value: str) -> dict:
     return obj
 
 
-class K8sResourceParser(SingletonMixin, LoggingMixin):
+class K8sResourceParser(LoggingMixin):
     """Parses Kubernetes resource definition files and creates a mapping between
     resource keys and file paths."""
     annotation = "hydrator-uid"
 
     def __init__(self) -> None:
-        if not self._initialized:
-            self._setup_logger('krm-parser')
-            self._uid_to_path: defaultdict[str, set[pathlib.Path]] = defaultdict(set)
-            self._overlay_resources: dict[str, list[pathlib.Path]] = {}
-            self._initialized = True
+        self._setup_logger('krm-parser')
+        self._uid_to_path: defaultdict[str, set[pathlib.Path]] = defaultdict(set)
+        self._overlay_resources: dict[str, list[pathlib.Path]] = {}
 
     @staticmethod
     def _generate_key(yaml_doc: YamlDoc) -> KrmObjectKey:
