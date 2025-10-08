@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.2.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.1.0...v2.2.0) (2025-10-08)
+
+
+### Features
+
+* **ci:** add ghcr publish workflow and optimize triggers ([94c5e1d](https://github.com/GDC-ConsumerEdge/hydrator/commit/94c5e1da9ca90aa3b6c430adc158d359968d576c))
+* use multiprocessing workers for enhanced performance ([94c5e1d](https://github.com/GDC-ConsumerEdge/hydrator/commit/94c5e1da9ca90aa3b6c430adc158d359968d576c))
+* use multiprocessing workers for enhanced performance ([#36](https://github.com/GDC-ConsumerEdge/hydrator/issues/36)) ([94c5e1d](https://github.com/GDC-ConsumerEdge/hydrator/commit/94c5e1da9ca90aa3b6c430adc158d359968d576c))
+
+
+### Bug Fixes
+
+* bug in KRM parser ([94c5e1d](https://github.com/GDC-ConsumerEdge/hydrator/commit/94c5e1da9ca90aa3b6c430adc158d359968d576c))
+
+
+### Documentation
+
+* update README.md ([1eacd00](https://github.com/GDC-ConsumerEdge/hydrator/commit/1eacd00fc5df930f024f1223c37c7b67ef5abb5f))
+* Update README.md ([#31](https://github.com/GDC-ConsumerEdge/hydrator/issues/31)) ([c56dcca](https://github.com/GDC-ConsumerEdge/hydrator/commit/c56dcca9fbadf6f6675d4d9d0605e4492015b282))
+
 ## [2.1.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.0.0...v2.1.0) (2025-04-29)
 
 
