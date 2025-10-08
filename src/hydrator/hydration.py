@@ -16,7 +16,7 @@
 ###############################################################################
 import asyncio
 import pathlib
-from typing import Any, Optional, Set
+from typing import Any, Set
 
 import aiofiles
 import jinja2
@@ -32,10 +32,9 @@ from .util import is_jinja_template, package_oci_artifact, TemporaryDirectory, L
 from .validator import BaseValidator
 
 
-# pylint: disable-next=too-many-instance-attributes
+# pylint: disable=too-many-instance-attributes,too-many-arguments,too-many-locals
 class BaseHydrator(LoggingMixin):
     """ Implements a specific hydration flow """
-    _jinja_env: jinja2.Environment
     _hydration_dest: pathlib.Path
     _oci_client: OCIClient | None
     _visited_files: Set[pathlib.Path]
@@ -43,11 +42,10 @@ class BaseHydrator(LoggingMixin):
     __slots__ = [
         'config', '_logger', '_temp', '_base_root_path', '_overlay_root_path', '_modules_path',
         '_hydrated_path', '_output_subdir', '_oci_client', 'oci_tags', '_hyd_type', '_validators',
-        'validated', '_preserve_temp', '_split_output', 'status', '_jinja_env', '_hydration_dest',
-        '_oci_client', '_overlay_path', '_visited_files', 'rendered_path'
+        'validated', '_preserve_temp', '_split_output', 'status', '_hydration_dest',
+        '_oci_client', '_overlay_path', '_visited_files', 'rendered_path', '_krm_parser'
     ]
 
-    # pylint: disable-next=too-many-arguments,too-many-locals
     def __init__(self, *,
                  config: BaseConfig,
                  temp: TemporaryDirectory,
@@ -79,6 +77,7 @@ class BaseHydrator(LoggingMixin):
         self._validators: list[BaseValidator] = validators if validators else []
         self._preserve_temp = preserve_temp
         self._split_output = split_output
+        self._krm_parser = K8sResourceParser() if self._split_output else None
 
         # construct a path to the overlay for this item
         # first, we use the items group.  if that doesn't exist, we check if there is a default
@@ -100,30 +99,11 @@ class BaseHydrator(LoggingMixin):
         self.rendered_path: pathlib.Path | None = None
 
         self._setup_logger('hydrator', self.name)
-        self._setup_jinja()
-
-    async def __aenter__(self):
-        return await self._temp.__aenter__()
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self._temp.__aexit__(exc_type, exc_val, exc_tb)
 
     @property
     def name(self):
         """Convenience property to grab configured name"""
         return self.config.name
-
-    def _setup_jinja(self) -> None:
-        """Setup jinja environment using internal tempdir at `self._temp`
-        and sets at `self._jinja_env`
-        """
-        self.log(f'Setting up Jinja with template loader path: {self._temp.path}', 'debug')
-        self._jinja_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(self._temp.path),
-            autoescape=True,
-            trim_blocks=True,
-            lstrip_blocks=True,
-            enable_async=True)
 
     # pylint: disable-next=too-many-branches
     async def _hydrate(self) -> None:
@@ -135,11 +115,7 @@ class BaseHydrator(LoggingMixin):
 
         # walk the sources (base and overlay), copy to temp dir, Jinja-template as needed
         try:
-            if self._split_output:
-                krm_parser = K8sResourceParser()
-                await self._process_dirs(krm_parser)
-            else:
-                await self._process_dirs()
+            await self._process_dirs()
         except CliWarning as e:
             if isinstance(e.__cause__, jinja2.exceptions.TemplateError):
                 self._set_failure(jinja=True)
@@ -219,7 +195,7 @@ class BaseHydrator(LoggingMixin):
         return next_path, relative_path
 
     # pylint: disable-next=too-many-locals
-    async def _process_dirs(self, krm_parser: Optional[K8sResourceParser] = None) -> None:
+    async def _process_dirs(self) -> None:
         """ Walks the base and overlay directories loading files contained within.  Files are
         loaded into memory, Jinja templated, and written to the temp directory.  If split output
         is enabled (`krm_parser` is not None), the KrmResourceParser is used to process YAML
@@ -262,8 +238,8 @@ class BaseHydrator(LoggingMixin):
                                                           hydrator=self)
 
                 # if we have a krm_parser, we're doing split output
-                if krm_parser:
-                    processed_str = await krm_parser.process_yaml_string(
+                if self._krm_parser:
+                    processed_str = await self._krm_parser.process_yaml_string(
                         templated_str if templated_str else str(in_mem_file),
                         path=pathlib.Path(rel_dest_no_j2) if rel_dest_no_j2 else file_cache_key,
                         unique_id=self.name
@@ -352,7 +328,7 @@ class BaseHydrator(LoggingMixin):
         """
         base_library_dir_name = "base_library"
         assert isinstance(self.rendered_path, pathlib.Path)
-        krm_parser = K8sResourceParser()
+        assert self._krm_parser is not None
         try:
             async with aiofiles.open(self.rendered_path, 'r', encoding="utf-8") as f:
                 self.log(f'Preparing to split manifest: {self.rendered_path}', 'debug')
@@ -361,7 +337,7 @@ class BaseHydrator(LoggingMixin):
 
             filtered_yaml_docs: list[dict[str, Any]] = []
             for doc in map(KrmResource, yaml_docs):
-                output_file = krm_parser.get_path(doc, unique_id=self.name)
+                output_file = self._krm_parser.get_path(doc, unique_id=self.name)
 
                 if output_file:
                     output_file = output_dir.joinpath(output_file)
