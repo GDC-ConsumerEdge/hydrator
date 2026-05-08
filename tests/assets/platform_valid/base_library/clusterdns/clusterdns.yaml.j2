@@ -2,6 +2,8 @@ apiVersion: networking.gke.io/v1alpha1
 kind: ClusterDNS
 metadata:
   name: default
+  labels:
+    store_id: "{{ cluster_name[2:7] }}"
 spec:
   upstreamNameservers:
 {% for ip in dns_servers.split(',')|map('trim') %}
