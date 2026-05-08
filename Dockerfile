@@ -1,5 +1,4 @@
-# FROM python:3.12-alpine
-FROM python:3.12-alpine
+FROM python:3.14-alpine
 
 ARG KUSTOMIZE_VERSION=v5.4.3
 ARG GATOR_VERSION=v3.17.0
