@@ -53,7 +53,19 @@ def represent_krm_resource(dumper: yaml.SafeDumper, data: KrmResource):
     return dumper.represent_dict(data.items())
 
 
+def represent_string(dumper: yaml.SafeDumper, data: str):
+    """ Custom YAML representer for strings to force quoting on numeric-looking strings
+    with leading zeros that PyYAML might otherwise leave unquoted.
+
+    Fixes https://github.com/yaml/pyyaml/issues/741
+    """
+    if data.isdigit() and data.startswith('0'):
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style="'")
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+
 yaml.add_representer(KrmResource, represent_krm_resource, Dumper=yaml.CSafeDumper)  # type: ignore
+yaml.add_representer(str, represent_string, Dumper=yaml.CSafeDumper)  # type: ignore
 
 
 def krm_add_annotation(obj: dict, *, key: str, value: str) -> dict:

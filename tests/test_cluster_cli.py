@@ -318,6 +318,33 @@ class TestClusterHydrationPlatformValidCases(unittest.TestCase):
 
         r.temp.cleanup()
 
+    def test_yaml1_1_quotes_split_output(self):
+        args = [*self.standard_args, "--split-output"]
+        r = run_cli('tests/assets/platform_valid/sot_zero_padded_ids.csv', subcommand_args=args)
+
+        self.assertEqual(0, r.proc.returncode)
+        self.assertIn("4 clusters total, all rendered successfully",
+                      r.proc.stdout)
+        self.assertFalse(r.proc.stderr)
+        with open('tests/assets/platform_valid/sot_zero_padded_ids.csv') as f:
+            reader = csv.reader(f)
+            next(reader)  # discard header
+            for name, group, _, _ in reader:
+                output_file = r.out.joinpath(f'{name}/{name}.yaml')
+                self.assertFalse(output_file.exists())
+
+                filepath = r.out.joinpath(f'{group}/{name}/clusterdns/clusterdns.yaml')
+                self.assertTrue(filepath.exists())
+                self.assertTrue(filepath.is_file())
+
+                with open(filepath) as f:
+                    doc = yaml.safe_load(f)
+                
+                # Ensure the digits extracted from store_id remain as a quoted string
+                self.assertEqual(doc['metadata']['labels']['store_id'], f"{name[2:7]}")
+
+        r.temp.cleanup()
+
 
 class TestDefaultOverlays(TestClusterHydrationPlatformValidCases):
     # we subclass the valid cases to ensure that everything behaves normally when we use
