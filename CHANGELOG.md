@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.2.0...v2.2.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* fix YAML dumping for strings with leading zeros to be preserved as strings (e.g. octets) ([#38](https://github.com/GDC-ConsumerEdge/hydrator/issues/38)) ([a03ffdc](https://github.com/GDC-ConsumerEdge/hydrator/commit/a03ffdca52002f6e20ca65c5eef6f751c14039a7))
+
 ## [2.2.0](https://github.com/GDC-ConsumerEdge/hydrator/compare/v2.1.0...v2.2.0) (2025-10-08)
 
 
